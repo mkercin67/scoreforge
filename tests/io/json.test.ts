@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  changePitch,
+  deleteEvent,
+  insertNote,
+  setOverride,
+} from '../../src/core/commands';
+import {
   createMeasure,
   createNote,
   createPart,
@@ -48,6 +54,27 @@ describe('JSON serialization and deserialization', () => {
     expect(deserialized).toEqual(score);
     expect(deserialized.schemaVersion).toBe(1);
     expect(deserialized.overrides[note1.id]).toEqual({ dx: 1.5, dy: -2.0, scale: 1.1 });
+  });
+
+  it('setOverride sets and updates dx/dy, and the override survives a JSON round-trip', () => {
+    const score = createScore();
+    const elemId = 'note-element-123';
+
+    // 1. Set initial override
+    let current = setOverride(elemId, { dx: 1.25, dy: -3.5 }).apply(score);
+    expect(current.overrides[elemId]).toEqual({ dx: 1.25, dy: -3.5 });
+
+    // 2. Update dx/dy
+    current = setOverride(elemId, { dx: 2.0, dy: -4.0, scale: 1.2 }).apply(current);
+    expect(current.overrides[elemId]).toEqual({ dx: 2.0, dy: -4.0, scale: 1.2 });
+
+    // 3. Round-trip through JSON
+    const json = serializeScore(current);
+    const roundTrip = deserializeScore(json);
+
+    expect(roundTrip.overrides[elemId]).toEqual({ dx: 2.0, dy: -4.0, scale: 1.2 });
+    expect(roundTrip.overrides[elemId].dx).toBe(2.0);
+    expect(roundTrip.overrides[elemId].dy).toBe(-4.0);
   });
 
   it('preserves microtonal pitch (alter: 0.5) across round-trip', () => {

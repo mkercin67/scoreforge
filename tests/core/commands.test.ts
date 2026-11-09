@@ -192,4 +192,69 @@ describe('commands and History', () => {
     current = setOverride(elemId, undefined).apply(current);
     expect(current.overrides[elemId]).toBeUndefined();
   });
+
+  it('undo/redo over at least 3 different commands in sequence', () => {
+    const score = createScore({ title: 'Undo/Redo 3 Commands' });
+    const measure = createMeasure({ num: 4, den: 4 });
+    const part = createPart('Flute');
+    score.measures.push(measure);
+    score.parts.push(part);
+
+    const history = new History(score);
+    const note = createNote({ pitches: [createPitch('C', 4, 0)], baseType: 'quarter' });
+
+    // 1. insertNote
+    history.do(insertNote({ partId: part.id, measureId: measure.id, event: note }));
+    expect(history.score.parts[0].staves[0].measures[measure.id].voices[0].events.length).toBe(1);
+
+    // 2. changePitch
+    history.do(changePitch(note.id, [createPitch('G', 4, 1)]));
+    const noteAfterPitch = history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    if (noteAfterPitch.kind === 'note') {
+      expect(noteAfterPitch.pitches[0].step).toBe('G');
+    }
+
+    // 3. setOverride
+    history.do(setOverride(note.id, { dx: 2.5, dy: -1 }));
+    expect(history.score.overrides[note.id]).toEqual({ dx: 2.5, dy: -1 });
+
+    // 4. setTimeSig (4th different command)
+    history.do(setTimeSig(measure.id, { num: 3, den: 4 }));
+    expect(history.score.measures[0].timeSig).toEqual({ num: 3, den: 4 });
+
+    // Step-by-step undo
+    history.undo(); // undo setTimeSig
+    expect(history.score.measures[0].timeSig).toEqual({ num: 4, den: 4 });
+    expect(history.score.overrides[note.id]).toEqual({ dx: 2.5, dy: -1 });
+
+    history.undo(); // undo setOverride
+    expect(history.score.overrides[note.id]).toBeUndefined();
+
+    history.undo(); // undo changePitch
+    const noteBack = history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    if (noteBack.kind === 'note') {
+      expect(noteBack.pitches[0].step).toBe('C');
+    }
+
+    history.undo(); // undo insertNote
+    expect(history.score.parts[0].staves[0].measures[measure.id]).toBeUndefined();
+    expect(history.canUndo()).toBe(false);
+
+    // Step-by-step redo
+    history.redo(); // redo insertNote
+    expect(history.score.parts[0].staves[0].measures[measure.id].voices[0].events.length).toBe(1);
+
+    history.redo(); // redo changePitch
+    const noteRedone = history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    if (noteRedone.kind === 'note') {
+      expect(noteRedone.pitches[0].step).toBe('G');
+    }
+
+    history.redo(); // redo setOverride
+    expect(history.score.overrides[note.id]).toEqual({ dx: 2.5, dy: -1 });
+
+    history.redo(); // redo setTimeSig
+    expect(history.score.measures[0].timeSig).toEqual({ num: 3, den: 4 });
+    expect(history.canRedo()).toBe(false);
+  });
 });
