@@ -73,6 +73,23 @@ describe('renderSvg', () => {
     expect(svg).toContain('ledger-0--2'); // C6 second ledger
   });
 
+  it('renders data-event-id attributes and invisible event hit rects', () => {
+    const score = createScore();
+    const m = createMeasure({ num: 4, den: 4 });
+    const part = createPart('Flute');
+    score.measures = [m];
+    score.parts = [part];
+
+    const note = createNote({ pitches: [createPitch('C', 4, 0)], baseType: 'quarter' });
+    part.staves[0].measures[m.id] = { voices: [{ id: 'v1', events: [note] }] };
+
+    const layout = layoutScore(score);
+    const svgStr = renderSvgToString(layout);
+
+    expect(svgStr).toContain(`data-event-id="${note.id}"`);
+    expect(svgStr).toContain(`class="event-hit-area" data-event-id="${note.id}"`);
+  });
+
   it('renderSvgToString snapshot of the demo score', () => {
     const score = buildSampleScore('G');
     const layout = layoutScore(score, { width: 82 });

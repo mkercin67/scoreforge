@@ -59,6 +59,10 @@ export function renderSvg(
       dominant-baseline: alphabetic;
       text-anchor: start;
     }
+    .event-hit-area {
+      fill: transparent;
+      stroke: none;
+    }
   `;
   svg.appendChild(styleEl);
 
@@ -68,13 +72,60 @@ export function renderSvg(
     const sysGroup = document.createElementNS(SVG_NS, 'g');
     sysGroup.setAttribute('data-system-index', sys.index.toString());
 
+    // Map bounding boxes for event hit areas
+    const eventBoxes = new Map<string, { minX: number; maxX: number; minY: number; maxY: number }>();
+
     for (const item of sys.items) {
       if (item.hidden) continue;
+
+      if (item.eventId) {
+        let b = eventBoxes.get(item.eventId);
+        if (!b) {
+          b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+          eventBoxes.set(item.eventId, b);
+        }
+        const itemX = item.x;
+        const itemY = item.y;
+        if (item.kind === 'line') {
+          const itemX2 = item.x2 ?? itemX;
+          const itemY2 = item.y2 ?? itemY;
+          b.minX = Math.min(b.minX, itemX, itemX2);
+          b.maxX = Math.max(b.maxX, itemX, itemX2);
+          b.minY = Math.min(b.minY, itemY, itemY2);
+          b.maxY = Math.max(b.maxY, itemY, itemY2);
+        } else {
+          b.minX = Math.min(b.minX, itemX);
+          b.maxX = Math.max(b.maxX, itemX + 1.2);
+          b.minY = Math.min(b.minY, itemY - 1.0);
+          b.maxY = Math.max(b.maxY, itemY + 0.5);
+        }
+      }
 
       const element = renderItemToSvgElement(item, sys, staffSpacePx, fontSize);
       if (element) {
         sysGroup.appendChild(element);
       }
+    }
+
+    // Render hit areas with ~0.5 staff space margin for easy clicking
+    const margin = 0.5;
+    for (const [eventId, box] of eventBoxes.entries()) {
+      const hitX = (box.minX - margin) * staffSpacePx;
+      const hitY = (sys.y + box.minY - margin) * staffSpacePx;
+      const hitW = (box.maxX - box.minX + 2 * margin) * staffSpacePx;
+      const hitH = (box.maxY - box.minY + 2 * margin) * staffSpacePx;
+
+      const rect = document.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('class', 'event-hit-area');
+      rect.setAttribute('data-event-id', eventId);
+      rect.setAttribute('x', hitX.toString());
+      rect.setAttribute('y', hitY.toString());
+      rect.setAttribute('width', Math.max(1, hitW).toString());
+      rect.setAttribute('height', Math.max(1, hitH).toString());
+      rect.setAttribute('fill', 'transparent');
+      rect.setAttribute('pointer-events', 'all');
+      rect.setAttribute('style', 'cursor: pointer;');
+      sysGroup.appendChild(rect);
     }
 
     svg.appendChild(sysGroup);
@@ -98,6 +149,9 @@ function renderItemToSvgElement(
   if (item.kind === 'line') {
     const line = document.createElementNS(SVG_NS, 'line');
     line.setAttribute('data-id', item.id);
+    if (item.eventId) {
+      line.setAttribute('data-event-id', item.eventId);
+    }
     line.setAttribute('x1', pxX.toString());
     line.setAttribute('y1', pxY.toString());
     const pxX2 = (item.x2 ?? item.x) * staffSpacePx;
@@ -114,6 +168,9 @@ function renderItemToSvgElement(
   if (item.kind === 'glyph' && item.glyph) {
     const text = document.createElementNS(SVG_NS, 'text');
     text.setAttribute('data-id', item.id);
+    if (item.eventId) {
+      text.setAttribute('data-event-id', item.eventId);
+    }
     text.setAttribute('x', pxX.toString());
     text.setAttribute('y', pxY.toString());
     text.setAttribute('class', 'scoreforge-glyph');
@@ -126,6 +183,9 @@ function renderItemToSvgElement(
   if (item.kind === 'text' && item.text) {
     const text = document.createElementNS(SVG_NS, 'text');
     text.setAttribute('data-id', item.id);
+    if (item.eventId) {
+      text.setAttribute('data-event-id', item.eventId);
+    }
     text.setAttribute('x', pxX.toString());
     text.setAttribute('y', pxY.toString());
     text.setAttribute('fill', 'currentColor');
@@ -159,24 +219,60 @@ export function renderSvgToString(
 
   for (const sys of layout.systems) {
     elementsXml += `  <g data-system-index="${sys.index}">\n`;
+    const eventBoxes = new Map<string, { minX: number; maxX: number; minY: number; maxY: number }>();
+
     for (const item of sys.items) {
       if (item.hidden) continue;
 
+      if (item.eventId) {
+        let b = eventBoxes.get(item.eventId);
+        if (!b) {
+          b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+          eventBoxes.set(item.eventId, b);
+        }
+        const itemX = item.x;
+        const itemY = item.y;
+        if (item.kind === 'line') {
+          const itemX2 = item.x2 ?? itemX;
+          const itemY2 = item.y2 ?? itemY;
+          b.minX = Math.min(b.minX, itemX, itemX2);
+          b.maxX = Math.max(b.maxX, itemX, itemX2);
+          b.minY = Math.min(b.minY, itemY, itemY2);
+          b.maxY = Math.max(b.maxY, itemY, itemY2);
+        } else {
+          b.minX = Math.min(b.minX, itemX);
+          b.maxX = Math.max(b.maxX, itemX + 1.2);
+          b.minY = Math.min(b.minY, itemY - 1.0);
+          b.maxY = Math.max(b.maxY, itemY + 0.5);
+        }
+      }
+
       const pxX = item.x * staffSpacePx;
       const pxY = (sys.y + item.y) * staffSpacePx;
+      const eventAttr = item.eventId ? ` data-event-id="${item.eventId}"` : '';
 
       if (item.kind === 'line') {
         const pxX2 = (item.x2 ?? item.x) * staffSpacePx;
         const pxY2 = (sys.y + (item.y2 ?? item.y)) * staffSpacePx;
         const strokeWidth = (item.thickness ?? 0.13) * staffSpacePx;
-        elementsXml += `    <line data-id="${item.id}" x1="${pxX}" y1="${pxY}" x2="${pxX2}" y2="${pxY2}" stroke="currentColor" stroke-width="${strokeWidth}" stroke-linecap="butt" />\n`;
+        elementsXml += `    <line data-id="${item.id}"${eventAttr} x1="${pxX}" y1="${pxY}" x2="${pxX2}" y2="${pxY2}" stroke="currentColor" stroke-width="${strokeWidth}" stroke-linecap="butt" />\n`;
       } else if (item.kind === 'glyph' && item.glyph) {
         const char = getGlyphChar(item.glyph);
-        elementsXml += `    <text data-id="${item.id}" x="${pxX}" y="${pxY}" class="scoreforge-glyph" font-size="${fontSize}px" fill="currentColor">${char}</text>\n`;
+        elementsXml += `    <text data-id="${item.id}"${eventAttr} x="${pxX}" y="${pxY}" class="scoreforge-glyph" font-size="${fontSize}px" fill="currentColor">${char}</text>\n`;
       } else if (item.kind === 'text' && item.text) {
-        elementsXml += `    <text data-id="${item.id}" x="${pxX}" y="${pxY}" fill="currentColor">${item.text}</text>\n`;
+        elementsXml += `    <text data-id="${item.id}"${eventAttr} x="${pxX}" y="${pxY}" fill="currentColor">${item.text}</text>\n`;
       }
     }
+
+    const margin = 0.5;
+    for (const [eventId, box] of eventBoxes.entries()) {
+      const hitX = (box.minX - margin) * staffSpacePx;
+      const hitY = (sys.y + box.minY - margin) * staffSpacePx;
+      const hitW = (box.maxX - box.minX + 2 * margin) * staffSpacePx;
+      const hitH = (box.maxY - box.minY + 2 * margin) * staffSpacePx;
+      elementsXml += `    <rect class="event-hit-area" data-event-id="${eventId}" x="${hitX}" y="${hitY}" width="${Math.max(1, hitW)}" height="${Math.max(1, hitH)}" fill="transparent" pointer-events="all" style="cursor: pointer;" />\n`;
+    }
+
     elementsXml += `  </g>\n`;
   }
 

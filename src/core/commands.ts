@@ -8,6 +8,7 @@
 import { produce } from 'immer';
 import { Id, NoteEvent, Override, Pitch, RestEvent, Score, ScoreEvent } from './model';
 import { newId } from './factory';
+import { transposeOctave, transposeSemitone } from './pitch';
 
 /** Interface for all operations that transform a Score. */
 export interface Command {
@@ -288,6 +289,98 @@ export function setOverride(elementId: Id, override?: Override): Command {
             ...draft.overrides[elementId],
             ...override,
           };
+        }
+      });
+    },
+  };
+}
+
+/**
+ * Creates a command that replaces a note or chord with a rest of identical duration.
+ * If the target event is already a rest, performs no changes.
+ *
+ * @param eventId - Target event ID.
+ * @returns An executable Command.
+ */
+export function convertToRest(eventId: Id): Command {
+  return {
+    name: 'convertToRest',
+    apply(score: Score): Score {
+      return produce(score, (draft) => {
+        for (const part of draft.parts) {
+          for (const staff of part.staves) {
+            for (const measureId of Object.keys(staff.measures)) {
+              const staffMeasure = staff.measures[measureId];
+              for (const voice of staffMeasure.voices) {
+                const idx = voice.events.findIndex((ev: ScoreEvent) => ev.id === eventId);
+                if (idx !== -1) {
+                  const ev = voice.events[idx];
+                  if (ev.kind === 'note') {
+                    const rest: RestEvent = {
+                      id: ev.id,
+                      kind: 'rest',
+                      duration: ev.duration,
+                      baseType: ev.baseType,
+                      dots: ev.dots,
+                      tuplet: ev.tuplet ? { ...ev.tuplet } : undefined,
+                    };
+                    voice.events[idx] = rest;
+                    delete draft.overrides[eventId];
+                  }
+                  return;
+                }
+              }
+            }
+          }
+        }
+      });
+    },
+  };
+}
+
+/**
+ * Creates a command that transposes the pitches of a note event by semitones.
+ * Octave shifts (12 semitones) preserve accidentals and alter only the octave number.
+ * Semitone shifts follow standard sharp-ascending and flat-descending spelling rules.
+ * Rest events are untouched.
+ *
+ * @param eventId - Target event ID.
+ * @param semitones - Number of semitones to shift (positive = up, negative = down).
+ * @returns An executable Command.
+ */
+export function transposeEvent(eventId: Id, semitones: number): Command {
+  return {
+    name: 'transposeEvent',
+    apply(score: Score): Score {
+      if (semitones === 0) return score;
+
+      return produce(score, (draft) => {
+        for (const part of draft.parts) {
+          for (const staff of part.staves) {
+            for (const measureId of Object.keys(staff.measures)) {
+              const staffMeasure = staff.measures[measureId];
+              for (const voice of staffMeasure.voices) {
+                const event = voice.events.find((ev: ScoreEvent) => ev.id === eventId);
+                if (event && event.kind === 'note') {
+                  if (Math.abs(semitones) === 12) {
+                    const octaves = semitones > 0 ? 1 : -1;
+                    event.pitches = event.pitches.map((p) => transposeOctave(p, octaves));
+                  } else {
+                    const direction = semitones > 0 ? 'up' : 'down';
+                    const steps = Math.abs(semitones);
+                    event.pitches = event.pitches.map((p) => {
+                      let current = p;
+                      for (let i = 0; i < steps; i++) {
+                        current = transposeSemitone(current, direction);
+                      }
+                      return current;
+                    });
+                  }
+                  return;
+                }
+              }
+            }
+          }
         }
       });
     },

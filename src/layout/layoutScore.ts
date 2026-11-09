@@ -212,6 +212,7 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
         measureItems.push({
           item: {
             id: ev.id,
+            eventId: ev.id,
             kind: 'glyph',
             glyph: restGlyph,
             x: eventCenterX,
@@ -224,6 +225,7 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
             measureItems.push({
               item: {
                 id: `${ev.id}-dot-${d}`,
+                eventId: ev.id,
                 kind: 'glyph',
                 glyph: 'augmentationDot',
                 x: eventCenterX + 1.2 + d * 0.5,
@@ -271,6 +273,7 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
             measureItems.push({
               item: {
                 id: `${ev.id}-acc-${pIdx}`,
+                eventId: ev.id,
                 kind: 'glyph',
                 glyph: accGlyph,
                 x: eventCenterX - 1.2,
@@ -293,6 +296,7 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
           measureItems.push({
             item: {
               id: pIdx === 0 ? ev.id : `${ev.id}-pitch-${pIdx}`,
+              eventId: ev.id,
               kind: 'glyph',
               glyph: noteheadGlyph,
               x: noteX,
@@ -306,6 +310,7 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
             measureItems.push({
               item: {
                 id: `${ev.id}-ledger-${pIdx}-${lY}`,
+                eventId: ev.id,
                 kind: 'line',
                 x: noteX - LEDGER_EXTENSION,
                 y: lY,
@@ -325,6 +330,7 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
               measureItems.push({
                 item: {
                   id: `${ev.id}-dot-${pIdx}-${d}`,
+                  eventId: ev.id,
                   kind: 'glyph',
                   glyph: 'augmentationDot',
                   x: dotBaseX + d * 0.4,
@@ -357,6 +363,7 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
           measureItems.push({
             item: {
               id: `${ev.id}-stem`,
+              eventId: ev.id,
               kind: 'line',
               x: stemX,
               y: stemStartY,
@@ -380,6 +387,7 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
               measureItems.push({
                 item: {
                   id: `${ev.id}-flag`,
+                  eventId: ev.id,
                   kind: 'glyph',
                   glyph: flagGlyph,
                   x: stemX,

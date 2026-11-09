@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   changePitch,
+  convertToRest,
   deleteEvent,
   History,
   insertNote,
   setOverride,
   setTimeSig,
+  transposeEvent,
 } from '../../src/core/commands';
 import {
   createMeasure,
@@ -256,5 +258,85 @@ describe('commands and History', () => {
     history.redo(); // redo setTimeSig
     expect(history.score.measures[0].timeSig).toEqual({ num: 3, den: 4 });
     expect(history.canRedo()).toBe(false);
+  });
+
+  it('supports convertToRest, replacing note with rest of identical duration', () => {
+    const score = createScore();
+    const measure = createMeasure();
+    const part = createPart('Flute');
+    score.measures = [measure];
+    score.parts = [part];
+
+    const note = createNote({
+      pitches: [createPitch('C', 4, 0)],
+      baseType: 'eighth',
+      dots: 1,
+    });
+    score.overrides[note.id] = { dx: 1 };
+    part.staves[0].measures[measure.id] = { voices: [{ id: 'v1', events: [note] }] };
+
+    const history = new History(score);
+    history.do(convertToRest(note.id));
+
+    const ev = history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    expect(ev.kind).toBe('rest');
+    expect(ev.duration).toBe(note.duration);
+    expect(ev.baseType).toBe('eighth');
+    expect(ev.dots).toBe(1);
+    expect(history.score.overrides[note.id]).toBeUndefined();
+
+    // Calling on an already rest is a no-op
+    history.do(convertToRest(note.id));
+    expect(history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0].kind).toBe('rest');
+
+    // Undo restores note and override
+    history.undo();
+    history.undo();
+    const restored = history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    expect(restored.kind).toBe('note');
+  });
+
+  it('supports transposeEvent for semitone and octave shifts', () => {
+    const score = createScore();
+    const measure = createMeasure();
+    const part = createPart('Violin');
+    score.measures = [measure];
+    score.parts = [part];
+
+    const note = createNote({
+      pitches: [createPitch('G', 4, 0)],
+      baseType: 'quarter',
+    });
+    part.staves[0].measures[measure.id] = { voices: [{ id: 'v1', events: [note] }] };
+
+    const history = new History(score);
+
+    // Transpose 1 semitone up: G4 -> G#4
+    history.do(transposeEvent(note.id, 1));
+    let currentNote = history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    if (currentNote.kind === 'note') {
+      expect(currentNote.pitches[0]).toEqual({ step: 'G', octave: 4, alter: 1 });
+    }
+
+    // Transpose 1 semitone up again: G#4 -> A4
+    history.do(transposeEvent(note.id, 1));
+    currentNote = history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    if (currentNote.kind === 'note') {
+      expect(currentNote.pitches[0]).toEqual({ step: 'A', octave: 4, alter: 0 });
+    }
+
+    // Transpose 1 octave down (-12): A4 -> A3
+    history.do(transposeEvent(note.id, -12));
+    currentNote = history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    if (currentNote.kind === 'note') {
+      expect(currentNote.pitches[0]).toEqual({ step: 'A', octave: 3, alter: 0 });
+    }
+
+    // Undo octave down
+    history.undo();
+    currentNote = history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    if (currentNote.kind === 'note') {
+      expect(currentNote.pitches[0]).toEqual({ step: 'A', octave: 4, alter: 0 });
+    }
   });
 });

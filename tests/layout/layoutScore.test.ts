@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { NoteEvent } from '../../src/core/model';
 import {
   createMeasure,
   createNote,

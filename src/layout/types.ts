@@ -11,6 +11,7 @@ export type LayoutItemKind = 'glyph' | 'line' | 'text';
 /** A single positioned visual element. */
 export interface LayoutItem {
   id: string;
+  eventId?: string;
   kind: LayoutItemKind;
   x: number;
   y: number;
