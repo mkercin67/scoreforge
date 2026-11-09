@@ -17,7 +17,7 @@ import { renderSvgToString } from '../render/renderSvg';
  * @param clefSign - 'G' for Treble or 'F' for Bass.
  * @returns Score instance.
  */
-function buildSampleScore(clefSign: 'G' | 'F'): Score {
+export function buildSampleScore(clefSign: 'G' | 'F'): Score {
   const isBass = clefSign === 'F';
   const score = createScore({
     title: isBass ? 'Demo Score — Bass Clef' : 'Demo Score — Treble Clef',
@@ -124,16 +124,16 @@ export const Demo: React.FC = () => {
   const trebleScore = useMemo(() => buildSampleScore('G'), []);
   const bassScore = useMemo(() => buildSampleScore('F'), []);
 
-  // System width set to 88 staff spaces to wrap 5 measures neatly into 2 systems
-  const trebleLayout = useMemo(() => layoutScore(trebleScore, { width: 88 }), [trebleScore]);
-  const bassLayout = useMemo(() => layoutScore(bassScore, { width: 88 }), [bassScore]);
+  // System width set to 82 staff spaces to wrap 5 measures into 2 justified systems
+  const trebleLayout = useMemo(() => layoutScore(trebleScore, { width: 82 }), [trebleScore]);
+  const bassLayout = useMemo(() => layoutScore(bassScore, { width: 82 }), [bassScore]);
 
   const trebleSvg = useMemo(
-    () => renderSvgToString(trebleLayout, { staffSpacePx: 12, color: '#111827' }),
+    () => renderSvgToString(trebleLayout, { staffSpacePx: 11, color: '#111827' }),
     [trebleLayout]
   );
   const bassSvg = useMemo(
-    () => renderSvgToString(bassLayout, { staffSpacePx: 12, color: '#111827' }),
+    () => renderSvgToString(bassLayout, { staffSpacePx: 11, color: '#111827' }),
     [bassLayout]
   );
 

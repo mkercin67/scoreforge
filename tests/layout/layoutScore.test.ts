@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createMeasure,
   createNote,
@@ -7,7 +7,8 @@ import {
   createRest,
   createScore,
 } from '../../src/core/factory';
-import { layoutScore } from '../../src/layout/layoutScore';
+import { getItemWidth, layoutScore } from '../../src/layout/layoutScore';
+import { buildSampleScore } from '../../src/ui/Demo';
 
 describe('layoutScore', () => {
   it('guarantees layout determinism: same input gives deep-equal output', () => {
@@ -117,5 +118,83 @@ describe('layoutScore', () => {
     expect(layout.systems.length).toBeGreaterThanOrEqual(2);
     expect(layout.systems[0].index).toBe(0);
     expect(layout.systems[1].index).toBe(1);
+  });
+
+  describe('multi-width layout test suite for demo score (widths: 500, 700, 900, 1200, 1600)', () => {
+    const testWidths = [500, 700, 900, 1200, 1600];
+
+    testWidths.forEach((targetW) => {
+      it(`satisfies all layout invariants at width ${targetW}`, () => {
+        const score = buildSampleScore('G');
+        const layout = layoutScore(score, { width: targetW });
+
+        // (a) every item x (plus its glyph width) is <= width
+        for (const item of layout.items) {
+          const itemW = getItemWidth(item);
+          expect(item.x + itemW).toBeLessThanOrEqual(targetW + 0.001);
+        }
+
+        // (b) every system ends exactly with a barline
+        for (const sys of layout.systems) {
+          const barlines = sys.items.filter((it) => it.id.includes('barline'));
+          expect(barlines.length).toBeGreaterThan(0);
+          const maxItemX = Math.max(...sys.items.map((it) => it.x));
+          const maxBarlineX = Math.max(...barlines.map((it) => it.x));
+          // The barline is at the very end of the system
+          expect(maxBarlineX).toBeCloseTo(maxItemX, 1);
+        }
+
+        // (c) all measures of the score appear in exactly one system in order
+        // Total measures in demo score is 5
+        expect(score.measures.length).toBe(5);
+        const seenMeasures = new Set<string>();
+        let lastMeasureIdx = -1;
+
+        for (const sys of layout.systems) {
+          for (const mDef of score.measures) {
+            const hasItemsForMeasure = sys.items.some((it) => it.id.includes(mDef.id));
+            if (hasItemsForMeasure) {
+              expect(seenMeasures.has(mDef.id)).toBe(false);
+              seenMeasures.add(mDef.id);
+              const curIdx = score.measures.findIndex((m) => m.id === mDef.id);
+              expect(curIdx).toBeGreaterThan(lastMeasureIdx);
+              lastMeasureIdx = curIdx;
+            }
+          }
+        }
+        expect(seenMeasures.size).toBe(5);
+
+        // (d) total event count is unchanged
+        const expectedEventCount = score.parts[0].staves[0].measures
+          ? Object.values(score.parts[0].staves[0].measures).flatMap((m) =>
+              m.voices.flatMap((v) => v.events)
+            ).length
+          : 0;
+
+        // In layout, each event has its primary glyph with data-id equal to ev.id
+        const layoutEventGlyphs = layout.items.filter(
+          (it) =>
+            it.kind === 'glyph' &&
+            (it.glyph?.startsWith('notehead') || it.glyph?.startsWith('rest')) &&
+            !it.id.includes('-pitch-')
+        );
+        expect(layoutEventGlyphs.length).toBe(expectedEventCount);
+      });
+    });
+
+    it('(e) a width too small for even one measure does not crash or loop forever', () => {
+      const score = buildSampleScore('G');
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      // Width of 5 is smaller than a single measure
+      const layout = layoutScore(score, { width: 5 });
+
+      expect(layout.systems.length).toBe(5); // exactly 1 measure per system
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Container width (5) is too small')
+      );
+
+      warnSpy.mockRestore();
+    });
   });
 });
