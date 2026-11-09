@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  changePitch,
-  deleteEvent,
-  insertNote,
-  setOverride,
-} from '../../src/core/commands';
+import { setOverride } from '../../src/core/commands';
 import {
   createMeasure,
   createNote,
