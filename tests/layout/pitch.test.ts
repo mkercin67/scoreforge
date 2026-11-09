@@ -46,6 +46,26 @@ describe('pitchToStaffPosition and diatonic mapping', () => {
     expect(getStemDirection(0)).toBe('up'); // Bottom line
   });
 
+  it('stem direction per pitch (G4 up, A4 up, B4 down, C5 down, D5 down)', () => {
+    // Diatonic step positions relative to bottom line E4 (step 0):
+    // G4 = step 2 (< 4) -> up
+    // A4 = step 3 (< 4) -> up
+    // B4 = step 4 (>= 4, middle line) -> down
+    // C5 = step 5 (>= 4) -> down
+    // D5 = step 6 (>= 4) -> down
+    const g4Pos = pitchToStaffPosition({ step: 'G', octave: 4, alter: 0 }, trebleClef);
+    const a4Pos = pitchToStaffPosition({ step: 'A', octave: 4, alter: 0 }, trebleClef);
+    const b4Pos = pitchToStaffPosition({ step: 'B', octave: 4, alter: 0 }, trebleClef);
+    const c5Pos = pitchToStaffPosition({ step: 'C', octave: 5, alter: 0 }, trebleClef);
+    const d5Pos = pitchToStaffPosition({ step: 'D', octave: 5, alter: 0 }, trebleClef);
+
+    expect(getStemDirection(g4Pos)).toBe('up');
+    expect(getStemDirection(a4Pos)).toBe('up');
+    expect(getStemDirection(b4Pos)).toBe('down');
+    expect(getStemDirection(c5Pos)).toBe('down');
+    expect(getStemDirection(d5Pos)).toBe('down');
+  });
+
   it('computes correct number of ledger lines for several pitches', () => {
     // Inside the staff (no ledger lines)
     expect(getLedgerLineYs(0).length).toBe(0); // E4

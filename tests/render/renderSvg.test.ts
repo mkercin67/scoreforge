@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createMeasure, createNote, createPart, createPitch, createScore } from '../../src/core/factory';
 import { layoutScore } from '../../src/layout/layoutScore';
 import { renderSvgToString } from '../../src/render/renderSvg';
+import { buildSampleScore } from '../../src/ui/Demo';
 
 describe('renderSvg', () => {
   it('renders SVG string containing data-id attributes and staff lines', () => {
@@ -70,5 +71,19 @@ describe('renderSvg', () => {
     expect(svg).toContain('ledger-0-6'); // A3 second ledger
     expect(svg).toContain('ledger-0--1'); // A5 ledger
     expect(svg).toContain('ledger-0--2'); // C6 second ledger
+  });
+
+  it('renderSvgToString snapshot of the demo score', () => {
+    const score = buildSampleScore('G');
+    const layout = layoutScore(score, { width: 82 });
+    const svgStr = renderSvgToString(layout, { staffSpacePx: 10 });
+
+    // Normalize random UUIDs so snapshot is completely deterministic
+    const normalized = svgStr.replace(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+      'STATIC-ID'
+    );
+
+    expect(normalized).toMatchSnapshot();
   });
 });

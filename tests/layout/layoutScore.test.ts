@@ -120,6 +120,76 @@ describe('layoutScore', () => {
     expect(layout.systems[1].index).toBe(1);
   });
 
+  it('every non-whole note/chord has exactly one stem item', () => {
+    const score = buildSampleScore('G');
+    const layout = layoutScore(score, { width: 80 });
+
+    // Collect all note events from score
+    const noteEvents: NoteEvent[] = [];
+    for (const part of score.parts) {
+      for (const staff of part.staves) {
+        for (const sm of Object.values(staff.measures)) {
+          for (const v of sm.voices) {
+            for (const ev of v.events) {
+              if (ev.kind === 'note') {
+                noteEvents.push(ev);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    expect(noteEvents.length).toBeGreaterThan(0);
+
+    for (const noteEv of noteEvents) {
+      const stemItems = layout.items.filter((it) => it.id === `${noteEv.id}-stem`);
+      if (noteEv.baseType === 'whole') {
+        expect(stemItems.length).toBe(0); // Whole notes have no stems
+      } else {
+        expect(stemItems.length).toBe(1); // Exactly one stem item
+        expect(stemItems[0].kind).toBe('line');
+      }
+    }
+  });
+
+  it('last staff line right end x == final barline x in the last system', () => {
+    const score = buildSampleScore('G');
+    const layout = layoutScore(score, { width: 80 });
+    const lastSys = layout.systems[layout.systems.length - 1];
+
+    // Find the final double barline (thick barline right edge)
+    const thickBarline = lastSys.items.find((it) => it.id.includes('barline') && it.id.includes('thick'));
+    expect(thickBarline).toBeDefined();
+    const finalBarlineRightEdge = thickBarline!.x + (thickBarline!.thickness ?? 0.5);
+
+    // Find staff lines in last system
+    const staffLines = lastSys.items.filter((it) => it.id.includes('staffline'));
+    expect(staffLines.length).toBe(5);
+    for (const line of staffLines) {
+      expect(line.x2).toBeCloseTo(finalBarlineRightEdge, 1);
+    }
+  });
+
+  it('last barline x == available width in a non-last system', () => {
+    const score = buildSampleScore('G');
+    const targetW = 82;
+    const layout = layoutScore(score, { width: targetW });
+
+    // In a multi-system layout, system 0 is non-last and must be justified
+    expect(layout.systems.length).toBeGreaterThan(1);
+    const nonLastSys = layout.systems[0];
+
+    // Find the barlines in nonLastSys
+    const barlines = nonLastSys.items.filter((it) => it.id.includes('barline') && !it.id.includes('start'));
+    expect(barlines.length).toBeGreaterThan(0);
+    const lastBarline = barlines[barlines.length - 1];
+
+    // Right edge of last barline matches available width
+    const lastBarlineRightEdge = lastBarline.x + (lastBarline.thickness ?? 0.16);
+    expect(lastBarlineRightEdge).toBeCloseTo(targetW, 1);
+  });
+
   describe('multi-width layout test suite for demo score (widths: 500, 700, 900, 1200, 1600)', () => {
     const testWidths = [500, 700, 900, 1200, 1600];
 
