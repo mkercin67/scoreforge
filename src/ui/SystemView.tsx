@@ -106,6 +106,13 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
                 x={pxX}
                 y={pxY}
                 className="scoreforge-glyph"
+                style={{
+                  fontFamily: 'Bravura, serif',
+                  dominantBaseline: 'alphabetic',
+                  textAnchor: 'start',
+                }}
+                dominantBaseline="alphabetic"
+                textAnchor="start"
                 fontSize={`${fontSize}px`}
                 fill="currentColor"
               >
@@ -128,8 +135,10 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
             width={area.width}
             height={area.height}
             fill="transparent"
+            stroke="none"
+            strokeWidth={0}
             pointerEvents="all"
-            style={{ cursor: 'pointer' }}
+            style={{ cursor: 'pointer', fill: 'transparent', stroke: 'none' }}
           />
         ))}
       </g>

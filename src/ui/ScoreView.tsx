@@ -164,6 +164,19 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
       }}
     >
       <style>{`
+        @font-face {
+          font-family: 'Bravura';
+          src: url('/fonts/Bravura.woff2') format('woff2');
+          font-weight: normal;
+          font-style: normal;
+          font-display: block;
+        }
+        .scoreforge-glyph {
+          font-family: 'Bravura', serif !important;
+          dominant-baseline: alphabetic !important;
+          text-anchor: start !important;
+          user-select: none;
+        }
         /* Dynamic blue highlight for the selected event */
         ${
           selectedEventId
@@ -174,11 +187,13 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
             : ''
         }
         .event-hit-area {
-          fill: transparent;
+          fill: transparent !important;
+          stroke: none !important;
           cursor: pointer;
         }
         .event-hit-area:hover {
-          fill: rgba(37, 99, 235, 0.08);
+          fill: rgba(37, 99, 235, 0.08) !important;
+          stroke: none !important;
         }
         @keyframes cursor-blink {
           0%, 100% { opacity: 1; }
