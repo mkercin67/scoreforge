@@ -33,6 +33,36 @@ describe('layoutScore', () => {
     expect(layout1).toEqual(layout2);
   });
 
+  it('ensures gap between last header glyph (time signature) and first event accidental is at least 0.8 staff spaces', () => {
+    const score = createScore();
+    const measure = createMeasure({ num: 4, den: 4 }, 0);
+    const part = createPart('Flute');
+    score.measures = [measure];
+    score.parts = [part];
+
+    // First note has sharp accidental in C major
+    const note = createNote({ pitches: [createPitch('F', 4, 1)], baseType: 'whole' });
+    part.staves[0].measures[measure.id] = {
+      voices: [{ id: 'v1', events: [note] }],
+    };
+
+    const layout = layoutScore(score, { width: 80 });
+    const items = layout.systems[0].items;
+
+    // Find the rightmost time signature glyph
+    const timeSigItems = items.filter((it) => it.id.includes('timesig'));
+    expect(timeSigItems.length).toBeGreaterThan(0);
+    const lastTimeSigX = Math.max(...timeSigItems.map((it) => it.x));
+    const lastTimeSigRight = lastTimeSigX + 1.2; // time signature glyph advance width ~1.2
+
+    // Find the accidental glyph for the first note
+    const accidentalItem = items.find((it) => it.id.includes('acc') && it.eventId === note.id);
+    expect(accidentalItem).toBeDefined();
+
+    const gap = accidentalItem!.x - lastTimeSigRight;
+    expect(gap).toBeGreaterThanOrEqual(0.8);
+  });
+
   it('ensures x positions strictly increase within a measure; no two events overlap horizontally', () => {
     const score = createScore();
     const measure = createMeasure({ num: 4, den: 4 });

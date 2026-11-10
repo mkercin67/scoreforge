@@ -58,6 +58,33 @@ const EditorShell: React.FC = () => {
       selectEvent(firstNote.id);
     } else if (stateParam === 'letters') {
       selectEvent(firstNote.id);
+    } else if (stateParam === 'undo_seq_1') {
+      selectEvent(firstNote.id);
+    } else if (stateParam === 'undo_seq_2') {
+      selectEvent(firstNote.id);
+      executeCommand(transposeEvent(firstNote.id, 1));
+    } else if (stateParam === 'undo_seq_3') {
+      selectEvent(firstNote.id);
+      executeCommand(transposeEvent(firstNote.id, 1));
+      executeCommand(convertToRest(firstNote.id));
+    } else if (stateParam === 'undo_seq_4') {
+      selectEvent(firstNote.id);
+      executeCommand(transposeEvent(firstNote.id, 1));
+      executeCommand(convertToRest(firstNote.id));
+      undo();
+    } else if (stateParam === 'undo_seq_5') {
+      selectEvent(firstNote.id);
+      executeCommand(transposeEvent(firstNote.id, 1));
+      executeCommand(convertToRest(firstNote.id));
+      undo();
+      undo();
+    } else if (stateParam === 'undo_seq_6') {
+      selectEvent(firstNote.id);
+      executeCommand(transposeEvent(firstNote.id, 1));
+      executeCommand(convertToRest(firstNote.id));
+      undo();
+      undo();
+      redo();
     }
   }, []);
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createMeasure, createNote, createPart, createPitch, createRest, createScore } from '../../src/core/factory';
-import { nextEventId } from '../../src/core/selection';
+import { eventExists, nextEventId } from '../../src/core/selection';
 
 describe('core selection navigation', () => {
   it('navigates next and previous events across measures on a staff', () => {
@@ -46,5 +46,23 @@ describe('core selection navigation', () => {
     score.parts = [part];
 
     expect(nextEventId(score, part.staves[0].id, null, 'next')).toBeNull();
+  });
+
+  it('eventExists verifies whether an event is in the score or cleared', () => {
+    const score = createScore();
+    const m = createMeasure();
+    const part = createPart('Flute');
+    score.measures = [m];
+    score.parts = [part];
+
+    const note = createNote({ pitches: [createPitch('C', 4, 0)], baseType: 'quarter' });
+    part.staves[0].measures[m.id] = { voices: [{ id: 'v1', events: [note] }] };
+
+    expect(eventExists(score, note.id)).toBe(true);
+    expect(eventExists(score, 'non-existent-id')).toBe(false);
+
+    // Empty voice
+    part.staves[0].measures[m.id].voices[0].events = [];
+    expect(eventExists(score, note.id)).toBe(false);
   });
 });

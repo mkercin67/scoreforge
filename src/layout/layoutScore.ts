@@ -9,7 +9,7 @@
 import { Clef, NoteEvent, Part, Score, ScoreEvent } from '../core/model';
 import { PPQ } from '../core/time';
 import { MeasureAccidentalTracker } from './accidentals';
-import { getKeySignatureAccidentals } from './keySignature';
+import { getKeySignatureAccidentals, getKeySignatureAlter } from './keySignature';
 import { getLedgerLineYs, getStemDirection, pitchToStaffPosition, staffPositionToY } from './pitch';
 import {
   LayoutItem,
@@ -176,7 +176,27 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
       const ev = events[eIdx];
       const durationFactor = ev.duration / PPQ;
       const eventWidth = 3.5 + durationFactor * 2.0;
-      const eventCenterX = relX + 0.8;
+
+      // Prevent first event accidental from touching the preceding header / time signature.
+      // Gap between the last header glyph and accidental must be at least 0.8 staff spaces.
+      let firstEventAccidentalPadding = 0;
+      if (eIdx === 0 && ev.kind === 'note') {
+        const noteEv = ev as NoteEvent;
+        const hasAccidental = noteEv.pitches.some((p) => {
+          const activeAlter = getKeySignatureAlter(p.step, mDef.keySig);
+          return (
+            p.alter !== activeAlter &&
+            Number.isInteger(p.alter) &&
+            p.alter >= -2 &&
+            p.alter <= 2
+          );
+        });
+        if (hasAccidental) {
+          firstEventAccidentalPadding = 1.2;
+        }
+      }
+
+      const eventCenterX = relX + 0.8 + firstEventAccidentalPadding;
 
       if (ev.kind === 'rest') {
         let restGlyph = 'restQuarter';
@@ -399,7 +419,7 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
         }
       }
 
-      relX += eventWidth;
+      relX += eventWidth + firstEventAccidentalPadding;
     }
 
     // Barline at end of measure

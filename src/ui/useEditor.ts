@@ -8,7 +8,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Command, History } from '../core/commands';
 import { NoteEvent, Pitch, Score, ScoreEvent } from '../core/model';
-import { nextEventId } from '../core/selection';
+import { eventExists, nextEventId } from '../core/selection';
 import { buildSampleScore } from './Demo';
 
 export interface SelectedEventInfo {
@@ -40,6 +40,7 @@ export function useEditor(initialScore?: Score) {
     const prevScore = history.undo();
     if (prevScore) {
       setScore(prevScore);
+      setSelectedEventId((curr) => (curr && eventExists(prevScore, curr) ? curr : null));
     }
   }, [history]);
 
@@ -47,6 +48,7 @@ export function useEditor(initialScore?: Score) {
     const nextScore = history.redo();
     if (nextScore) {
       setScore(nextScore);
+      setSelectedEventId((curr) => (curr && eventExists(nextScore, curr) ? curr : null));
     }
   }, [history]);
 

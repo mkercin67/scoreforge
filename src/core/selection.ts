@@ -47,6 +47,28 @@ export function getStaffEventsInOrder(score: Score, staffId: string): ScoreEvent
 }
 
 /**
+ * Checks whether an event with the given ID exists anywhere within the score.
+ *
+ * @param score - The score container.
+ * @param eventId - Identifier of the event to check.
+ * @returns True if the event exists in any voice of any staff.
+ */
+export function eventExists(score: Score, eventId: string): boolean {
+  for (const part of score.parts) {
+    for (const staff of part.staves) {
+      for (const sm of Object.values(staff.measures)) {
+        for (const voice of sm.voices) {
+          if (voice.events.some((ev) => ev.id === eventId)) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Calculates the next or previous event ID on a staff relative to a current selection.
  *
  * @param score - The score container.

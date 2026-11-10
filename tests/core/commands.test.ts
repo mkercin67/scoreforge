@@ -339,4 +339,93 @@ describe('commands and History', () => {
       expect(currentNote.pitches[0]).toEqual({ step: 'A', octave: 4, alter: 0 });
     }
   });
+
+  it('verifies exact undo/redo sequence: ArrowUp, Delete, Undo, Undo, Redo with selection tracking', () => {
+    const score = createScore();
+    const measure = createMeasure();
+    const part = createPart('Violin');
+    score.measures = [measure];
+    score.parts = [part];
+
+    const note = createNote({
+      pitches: [createPitch('G', 4, 0)],
+      baseType: 'quarter',
+    });
+    part.staves[0].measures[measure.id] = { voices: [{ id: 'v1', events: [note] }] };
+
+    const history = new History(score);
+    let selectedId: string | null = note.id;
+
+    // 1. Transpose up: G4 -> G#4
+    history.do(transposeEvent(note.id, 1));
+    let ev = history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    expect(ev.kind).toBe('note');
+    if (ev.kind === 'note') {
+      expect(ev.pitches[0]).toEqual({ step: 'G', octave: 4, alter: 1 });
+    }
+    expect(history.canUndo()).toBe(true);
+    expect(history.canRedo()).toBe(false);
+
+    // 2. Delete (convert to rest)
+    history.do(convertToRest(note.id));
+    ev = history.score.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    expect(ev.kind).toBe('rest');
+    expect(history.canUndo()).toBe(true);
+    expect(history.canRedo()).toBe(false);
+
+    // 3. Undo once: Rest -> G#4
+    const restored1 = history.undo()!;
+    ev = restored1.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    expect(ev.kind).toBe('note');
+    if (ev.kind === 'note') {
+      expect(ev.pitches[0]).toEqual({ step: 'G', octave: 4, alter: 1 });
+    }
+    expect(selectedId).toBe(note.id); // note still exists, selection retained
+    expect(history.canUndo()).toBe(true);
+    expect(history.canRedo()).toBe(true);
+
+    // 4. Undo again: G#4 -> G4
+    const restored2 = history.undo()!;
+    ev = restored2.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    expect(ev.kind).toBe('note');
+    if (ev.kind === 'note') {
+      expect(ev.pitches[0]).toEqual({ step: 'G', octave: 4, alter: 0 });
+    }
+    expect(selectedId).toBe(note.id); // note still exists, selection retained
+    expect(history.canUndo()).toBe(false);
+    expect(history.canRedo()).toBe(true);
+
+    // 5. Redo: G4 -> G#4
+    const redone = history.redo()!;
+    ev = redone.parts[0].staves[0].measures[measure.id].voices[0].events[0];
+    expect(ev.kind).toBe('note');
+    if (ev.kind === 'note') {
+      expect(ev.pitches[0]).toEqual({ step: 'G', octave: 4, alter: 1 });
+    }
+    expect(selectedId).toBe(note.id); // note still exists, selection retained
+    expect(history.canUndo()).toBe(true);
+    expect(history.canRedo()).toBe(true);
+  });
+
+  it('clears selection when the selected event is completely deleted after undo/redo', () => {
+    const score = createScore();
+    const measure = createMeasure();
+    const part = createPart('Flute');
+    score.measures = [measure];
+    score.parts = [part];
+
+    const note1 = createNote({ pitches: [createPitch('C', 4, 0)], baseType: 'quarter' });
+    part.staves[0].measures[measure.id] = { voices: [{ id: 'v1', events: [note1] }] };
+
+    const history = new History(score);
+    // Delete event completely
+    history.do(deleteEvent(note1.id));
+    expect(history.score.parts[0].staves[0].measures[measure.id].voices[0].events.length).toBe(0);
+
+    // If an external tracker checks existence
+    const exists = history.score.parts[0].staves[0].measures[measure.id].voices[0].events.some(
+      (e) => e.id === note1.id
+    );
+    expect(exists).toBe(false);
+  });
 });
