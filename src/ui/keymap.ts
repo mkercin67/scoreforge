@@ -22,6 +22,7 @@ export type UserAction =
   | 'exit-note-input'
   | 'enter-rest'
   | 'toggle-dot'
+  | 'show-input-off-hint'
   | { type: 'enter-pitch'; letter: PitchStep }
   | { type: 'set-duration'; baseType: BaseDurationType };
 
@@ -97,13 +98,19 @@ export function mapKeyEvent(e: KeyEventLike, isInputMode = false): UserAction | 
     return isInputMode ? 'exit-note-input' : 'clear-selection';
   }
 
-  // Pitch keys KeyA..KeyG
+  // Pitch keys KeyA..KeyG: only enter note when isInputMode is true; otherwise prompt hint
   if (PITCH_LETTERS[e.code] && !isShift) {
+    if (!isInputMode) {
+      return 'show-input-off-hint';
+    }
     return { type: 'enter-pitch', letter: PITCH_LETTERS[e.code] };
   }
 
-  // Digit0 enters a rest
+  // Digit0 enters a rest when isInputMode is true; otherwise prompt hint
   if (e.code === 'Digit0' && !isShift) {
+    if (!isInputMode) {
+      return 'show-input-off-hint';
+    }
     return 'enter-rest';
   }
 

@@ -10,8 +10,8 @@ import { Score } from '../core/model';
 import { ScoreCursor } from '../core/input';
 import { computeCursorPosition } from '../layout/cursor';
 import { layoutScore } from '../layout/layoutScore';
-import { renderSvgToString } from '../render/renderSvg';
 import { useI18n } from './i18n';
+import { SystemView } from './SystemView';
 
 export interface ScoreViewProps {
   score: Score;
@@ -72,10 +72,14 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
     return computeCursorPosition(layout, score, cursor);
   }, [layout, score, cursor]);
 
-  // SVG content is rendered once per layout change
-  const rawSvgHtml = useMemo(() => {
-    return renderSvgToString(layout, { staffSpacePx });
-  }, [layout, staffSpacePx]);
+  const cursorLineRef = useRef<SVGLineElement | null>(null);
+
+  // Keep cursor visible: when cursor moves to a system outside the viewport, scroll into view
+  useEffect(() => {
+    if (isInputMode && cursorPos && cursorLineRef.current) {
+      cursorLineRef.current.scrollIntoView({ block: 'nearest' });
+    }
+  }, [isInputMode, cursorPos?.systemIndex, cursorPos?.x, cursorPos?.y1]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as Element | null;
@@ -195,22 +199,20 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
           maxWidth: '100%',
         }}
       >
-        <div dangerouslySetInnerHTML={{ __html: rawSvgHtml }} />
+        <svg
+          viewBox={`0 0 ${totalWidthPx} ${totalHeightPx}`}
+          width={`${totalWidthPx}px`}
+          height={`${totalHeightPx}px`}
+          style={{ color: '#000000', overflow: 'visible', userSelect: 'none', display: 'block' }}
+        >
+          {layout.systems.map((sys) => (
+            <SystemView key={sys.index} system={sys} staffSpacePx={staffSpacePx} />
+          ))}
 
-        {/* Lightweight SVG Overlay for input cursor: zero layout thrash */}
-        {isInputMode && cursorPos && (
-          <svg
-            style={{
-              position: 'absolute',
-              top: '2.5rem',
-              left: '3rem',
-              width: `${totalWidthPx}px`,
-              height: `${totalHeightPx}px`,
-              pointerEvents: 'none',
-              overflow: 'visible',
-            }}
-          >
+          {/* Persistent cursor overlay inside the SVG: zero layout thrash */}
+          {isInputMode && cursorPos && (
             <line
+              ref={cursorLineRef}
               x1={cursorPos.x * staffSpacePx}
               y1={cursorPos.y1 * staffSpacePx}
               x2={cursorPos.x * staffSpacePx}
@@ -219,8 +221,8 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
               strokeWidth={2}
               className="score-input-cursor"
             />
-          </svg>
-        )}
+          )}
+        </svg>
       </div>
     </div>
   );

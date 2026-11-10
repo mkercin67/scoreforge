@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createEmptyScore } from '../../src/core/factory';
+import { enterNote } from '../../src/core/input';
 import * as layoutScoreModule from '../../src/layout/layoutScore';
 import { computeCursorPosition } from '../../src/layout/cursor';
 
@@ -68,5 +69,39 @@ describe('Performance verification', () => {
     // layoutScore was NOT called again!
     expect(layoutSpy).toHaveBeenCalledTimes(1);
     layoutSpy.mockRestore();
+  });
+
+  it('entering one note into a 64-measure score recomputes layout for exactly 1 measure (cache hit counter)', () => {
+    const score1 = createEmptyScore({
+      clef: { sign: 'G', line: 2 },
+      keySig: 0,
+      timeSig: { num: 4, den: 4 },
+      measures: 64,
+    });
+
+    // 1. Initial layout warms up cache for all 64 measures
+    layoutScoreModule.layoutScore(score1, { width: 100 });
+
+    // 2. Reset cache hit/miss statistics
+    layoutScoreModule.measureLayoutCacheStats.reset();
+
+    // 3. Enter one note into measure 1 (Immer preserves reference of measures 2..64)
+    const staffId = score1.parts[0].staves[0].id;
+    const m1Id = score1.measures[0].id;
+    const v1Id = score1.parts[0].staves[0].measures[m1Id].voices[0].id;
+
+    // Use enterNote to modify measure 1
+    const score2 = enterNote(
+      { staffId, voiceId: v1Id, measureId: m1Id, tick: 0 },
+      { baseType: 'quarter', dots: 0, pitch: { step: 'C', octave: 5, alter: 0 } }
+    ).apply(score1);
+
+    // 4. Layout score2
+    layoutScoreModule.layoutScore(score2, { width: 100 });
+
+    // 5. Exactly 1 measure (measure 1) is computed; the remaining 63 measures are cache hits!
+    expect(layoutScoreModule.measureLayoutCacheStats.calls).toBe(64);
+    expect(layoutScoreModule.measureLayoutCacheStats.misses).toBe(1);
+    expect(layoutScoreModule.measureLayoutCacheStats.hits).toBe(63);
   });
 });

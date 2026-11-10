@@ -126,4 +126,50 @@ describe('cursor layout and visibility', () => {
     const noteGlyph = layout.systems[0].items.find((it) => it.glyph === 'noteheadHalf');
     expect(pos!.x).toBeGreaterThan(noteGlyph!.x);
   });
+
+  it('multi-system score: cursor y coordinates MUST match the target system staff bounds across all systems', () => {
+    // Create an 8-measure score and lay it out at narrow width (e.g. 45 staff spaces) to force >= 3 systems
+    const score = createEmptyScore({
+      clef: { sign: 'G', line: 2 },
+      keySig: 0,
+      timeSig: { num: 4, den: 4 },
+      measures: 8,
+    });
+    const layout = layoutScore(score, { width: 25 });
+    expect(layout.systems.length).toBeGreaterThanOrEqual(3);
+
+    const staffId = score.parts[0].staves[0].id;
+
+    for (let sIdx = 0; sIdx < layout.systems.length; sIdx++) {
+      const sys = layout.systems[sIdx];
+      // Find all measures in this system by looking for barlines
+      const measureBarlines = sys.items.filter((it) => it.id.startsWith('barline-') && !it.id.includes('thick'));
+      expect(measureBarlines.length).toBeGreaterThan(0);
+
+      for (const barline of measureBarlines) {
+        const mId = barline.id.replace('barline-', '').replace('-thin', '');
+        const sm = score.parts[0].staves[0].measures[mId];
+        if (!sm) continue;
+        const vId = sm.voices[0].id;
+
+        // Test at tick 0 and tick 960
+        for (const tick of [0, 960]) {
+          const cursor: ScoreCursor = { staffId, voiceId: vId, measureId: mId, tick };
+          const pos = computeCursorPosition(layout, score, cursor);
+          expect(pos).not.toBeNull();
+
+          // System index must match
+          expect(pos!.systemIndex).toBe(sIdx);
+
+          // y1 and y2 must lie inside this system's staff bounds (sys.y to sys.y + 4)
+          expect(pos!.y1).toBe(sys.y);
+          expect(pos!.y2).toBe(sys.y + 4);
+
+          // x must be within [0, sys.width]
+          expect(pos!.x).toBeGreaterThanOrEqual(0);
+          expect(pos!.x).toBeLessThanOrEqual(sys.width);
+        }
+      }
+    }
+  });
 });

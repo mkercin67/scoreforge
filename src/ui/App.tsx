@@ -5,7 +5,7 @@
  * keyboard interaction, and automated verification states.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useState } from 'react';
 import { convertToRest, transposeEvent } from '../core/commands';
 import { createEmptyScore } from '../core/factory';
 import { I18nProvider, useI18n } from './i18n';
@@ -15,6 +15,25 @@ import { ScoreView } from './ScoreView';
 import { StatusBar } from './StatusBar';
 import { Toolbar } from './Toolbar';
 import { useEditor } from './useEditor';
+
+declare global {
+  interface Window {
+    __perf?: number[];
+    __perfT0?: number;
+    __printPerfTable?: () => {
+      first10: { p50: number; p95: number };
+      last10: { p50: number; p95: number };
+      total: { count: number; p50: number; p95: number };
+    };
+  }
+}
+
+function calcPercentile(arr: number[], p: number): number {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * (p / 100)));
+  return Number(sorted[idx].toFixed(2));
+}
 
 const EditorShell: React.FC = () => {
   const { t } = useI18n();
@@ -80,7 +99,25 @@ const EditorShell: React.FC = () => {
     if (!stateParam) return;
 
     // Milestone 3b Verification States
-    if (stateParam.startsWith('verify_') || stateParam === 'demo_3_4' || stateParam === 'demo_bass') {
+    if (
+      stateParam.startsWith('verify_') ||
+      stateParam === 'demo_3_4' ||
+      stateParam === 'demo_bass' ||
+      stateParam === 'benchmark_64'
+    ) {
+      if (stateParam === 'benchmark_64') {
+        const bScore = createEmptyScore({
+          clef: { sign: 'G', line: 2 },
+          keySig: 0,
+          timeSig: { num: 4, den: 4 },
+          measures: 64,
+        });
+        resetScore(bScore);
+        setIsInputMode(true);
+        setActiveDuration('quarter');
+        setActiveDots(0);
+        return;
+      }
       if (stateParam === 'demo_3_4') {
         const s34 = createEmptyScore({
           clef: { sign: 'G', line: 2 },
@@ -117,7 +154,7 @@ const EditorShell: React.FC = () => {
         measures: 8,
       });
       resetScore(freshScore);
-      setIsInputMode(true);
+      setIsInputMode(false);
       setActiveDuration('quarter');
       setActiveDots(0);
 
@@ -190,6 +227,43 @@ const EditorShell: React.FC = () => {
     triggerRejectedError,
     t,
   ]);
+
+  // Dev-only performance probe: measure keydown-to-paint (t1 - t0) across 2 requestAnimationFrames
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return;
+    const t0 = window.__perfT0;
+    if (t0 !== undefined) {
+      window.__perfT0 = undefined;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const t1 = performance.now();
+          const duration = t1 - t0;
+          if (!window.__perf) window.__perf = [];
+          window.__perf.push(duration);
+        });
+      });
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.__printPerfTable = () => {
+      const arr = window.__perf ?? [];
+      const first10 = arr.slice(0, 10);
+      const last10 = arr.slice(Math.max(0, arr.length - 10));
+      const stats = {
+        first10: { p50: calcPercentile(first10, 50), p95: calcPercentile(first10, 95) },
+        last10: { p50: calcPercentile(last10, 50), p95: calcPercentile(last10, 95) },
+        total: { count: arr.length, p50: calcPercentile(arr, 50), p95: calcPercentile(arr, 95) },
+      };
+      console.table({
+        'First 10 notes': { p50: `${stats.first10.p50} ms`, p95: `${stats.first10.p95} ms` },
+        'Last 10 notes': { p50: `${stats.last10.p50} ms`, p95: `${stats.last10.p95} ms` },
+        'Total Run': { p50: `${stats.total.p50} ms`, p95: `${stats.total.p95} ms` },
+      });
+      return stats;
+    };
+  }, []);
 
   // Global physical keyboard event handler
   useEffect(() => {
@@ -271,14 +345,19 @@ const EditorShell: React.FC = () => {
             }
             break;
           case 'enter-rest':
+            window.__perfT0 = performance.now();
             enterRestAtCursor(t('error.doesNotFit'), t('error.noCursor'));
             break;
           case 'toggle-dot':
             toggleDot();
             break;
+          case 'show-input-off-hint':
+            triggerRejectedError(t('status.inputOff'));
+            break;
         }
       } else if (typeof action === 'object') {
         if (action.type === 'enter-pitch') {
+          window.__perfT0 = performance.now();
           enterPitchAtCursor(action.letter, t('error.doesNotFit'), t('error.noCursor'));
         } else if (action.type === 'set-duration') {
           setActiveDuration(action.baseType);

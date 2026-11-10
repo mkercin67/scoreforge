@@ -49,9 +49,8 @@ export function computeCursorPosition(
     systemIndex = 0;
   }
 
-  const staffY = targetSystem.staves[0]?.y ?? targetSystem.y;
-  const y1 = staffY;
-  const y2 = staffY + 4;
+  const y1 = targetSystem.y;
+  const y2 = targetSystem.y + 4;
 
   const isFirstMeasureInScore = score.measures[0]?.id === cursor.measureId;
 

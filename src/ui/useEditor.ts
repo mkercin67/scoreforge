@@ -181,6 +181,7 @@ export function useEditor(initialScore?: Score) {
   // Enter a note with the keyboard
   const enterPitchAtCursor = useCallback(
     (letter: PitchStep, errorMsg: string, noCursorMsg?: string) => {
+      if (!isInputMode) return;
       if (!cursor) {
         triggerRejectedError(noCursorMsg ?? 'İmleç yok, bir ölçüye tıklayın');
         return;
@@ -245,11 +246,12 @@ export function useEditor(initialScore?: Score) {
       const nextCursor = advanceCursor(nextScore, activeCursor, duration);
       setCursor(nextCursor);
     },
-    [cursor, score, activeDuration, activeDots, triggerRejectedError]
+    [isInputMode, cursor, score, activeDuration, activeDots, triggerRejectedError]
   );
 
   const enterRestAtCursor = useCallback(
     (errorMsg: string, noCursorMsg?: string) => {
+      if (!isInputMode) return;
       if (!cursor) {
         triggerRejectedError(noCursorMsg ?? 'İmleç yok, bir ölçüye tıklayın');
         return;
@@ -299,7 +301,7 @@ export function useEditor(initialScore?: Score) {
       const nextCursor = advanceCursor(nextScore, activeCursor, duration);
       setCursor(nextCursor);
     },
-    [cursor, score, activeDuration, activeDots, triggerRejectedError]
+    [isInputMode, cursor, score, activeDuration, activeDots, triggerRejectedError]
   );
 
   const moveCursorDirection = useCallback(

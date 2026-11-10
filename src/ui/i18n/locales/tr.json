@@ -17,6 +17,7 @@
   "status.restInfo": "Ölçü {measure} · {duration}",
   "status.inputMode": "Nota girişi · {duration} · Ölçü {measure}",
   "status.inputModeRest": "Es girişi · {duration} · Ölçü {measure}",
+  "status.inputOff": "Nota girişi kapalı. N tuşuna basın",
   "duration.whole.note": "Birlik nota",
   "duration.half.note": "İkilik nota",
   "duration.quarter.note": "Dörtlük nota",

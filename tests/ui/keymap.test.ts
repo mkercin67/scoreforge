@@ -45,23 +45,29 @@ describe('keymap', () => {
     expect(mapKeyEvent({ code: 'KeyN', ctrlKey: true })).toBeNull();
   });
 
-  it('maps KeyA..KeyG to enter-pitch with physical code', () => {
-    expect(mapKeyEvent({ code: 'KeyA' })).toEqual({ type: 'enter-pitch', letter: 'A' });
-    expect(mapKeyEvent({ code: 'KeyB' })).toEqual({ type: 'enter-pitch', letter: 'B' });
-    expect(mapKeyEvent({ code: 'KeyC' })).toEqual({ type: 'enter-pitch', letter: 'C' });
-    expect(mapKeyEvent({ code: 'KeyD' })).toEqual({ type: 'enter-pitch', letter: 'D' });
-    expect(mapKeyEvent({ code: 'KeyE' })).toEqual({ type: 'enter-pitch', letter: 'E' });
-    expect(mapKeyEvent({ code: 'KeyF' })).toEqual({ type: 'enter-pitch', letter: 'F' });
-    expect(mapKeyEvent({ code: 'KeyG' })).toEqual({ type: 'enter-pitch', letter: 'G' });
+  it('maps KeyA..KeyG to enter-pitch when isInputMode is true; prompts hint when false', () => {
+    // When isInputMode is true: enters pitch
+    expect(mapKeyEvent({ code: 'KeyA' }, true)).toEqual({ type: 'enter-pitch', letter: 'A' });
+    expect(mapKeyEvent({ code: 'KeyB' }, true)).toEqual({ type: 'enter-pitch', letter: 'B' });
+    expect(mapKeyEvent({ code: 'KeyC' }, true)).toEqual({ type: 'enter-pitch', letter: 'C' });
+    expect(mapKeyEvent({ code: 'KeyD' }, true)).toEqual({ type: 'enter-pitch', letter: 'D' });
+    expect(mapKeyEvent({ code: 'KeyE' }, true)).toEqual({ type: 'enter-pitch', letter: 'E' });
+    expect(mapKeyEvent({ code: 'KeyF' }, true)).toEqual({ type: 'enter-pitch', letter: 'F' });
+    expect(mapKeyEvent({ code: 'KeyG' }, true)).toEqual({ type: 'enter-pitch', letter: 'G' });
+
+    // When isInputMode is false: returns 'show-input-off-hint'
+    expect(mapKeyEvent({ code: 'KeyA' }, false)).toBe('show-input-off-hint');
+    expect(mapKeyEvent({ code: 'KeyC' }, false)).toBe('show-input-off-hint');
 
     // Modifiers ignore note entry
-    expect(mapKeyEvent({ code: 'KeyC', ctrlKey: true })).toBeNull();
-    expect(mapKeyEvent({ code: 'KeyC', altKey: true })).toBeNull();
+    expect(mapKeyEvent({ code: 'KeyC', ctrlKey: true }, true)).toBeNull();
+    expect(mapKeyEvent({ code: 'KeyC', altKey: true }, true)).toBeNull();
   });
 
-  it('maps Digit0 to enter-rest', () => {
-    expect(mapKeyEvent({ code: 'Digit0' })).toBe('enter-rest');
-    expect(mapKeyEvent({ code: 'Digit0', ctrlKey: true })).toBeNull();
+  it('maps Digit0 to enter-rest when isInputMode is true; prompts hint when false', () => {
+    expect(mapKeyEvent({ code: 'Digit0' }, true)).toBe('enter-rest');
+    expect(mapKeyEvent({ code: 'Digit0' }, false)).toBe('show-input-off-hint');
+    expect(mapKeyEvent({ code: 'Digit0', ctrlKey: true }, true)).toBeNull();
   });
 
   it('maps Digit2..Digit7 to set-duration', () => {

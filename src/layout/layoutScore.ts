@@ -6,7 +6,16 @@
  * system wrapping, non-last system justification, and manual visual overrides.
  */
 
-import { Clef, NoteEvent, Part, RestEvent, Score, ScoreEvent } from '../core/model';
+import {
+  Clef,
+  MeasureDef,
+  NoteEvent,
+  Part,
+  RestEvent,
+  Score,
+  ScoreEvent,
+  StaffMeasure,
+} from '../core/model';
 import { PPQ } from '../core/time';
 import { MeasureAccidentalTracker } from './accidentals';
 import { getKeySignatureAccidentals, getKeySignatureAlter } from './keySignature';
@@ -59,11 +68,410 @@ interface MeasureItemEntry {
   ledgerNoteRelativeX?: number;
 }
 
-interface MeasureLayoutChunk {
+export interface MeasureLayoutChunk {
   measureDefId: string;
   items: MeasureItemEntry[];
   naturalWidth: number;
   barlineItemIndex: number;
+}
+
+export const measureLayoutCacheStats = {
+  calls: 0,
+  hits: 0,
+  misses: 0,
+  reset() {
+    this.calls = 0;
+    this.hits = 0;
+    this.misses = 0;
+  },
+};
+
+const measureChunkCache = new WeakMap<StaffMeasure, Map<string, MeasureLayoutChunk>>();
+
+function createTimeSigItems(
+  startX: number,
+  timeSig: { num: number; den: number }
+): { items: LayoutItem[]; width: number } {
+  const items: LayoutItem[] = [];
+  const numStr = timeSig.num.toString();
+  const denStr = timeSig.den.toString();
+
+  let curX = startX;
+  for (let i = 0; i < numStr.length; i++) {
+    items.push({
+      id: `timesig-num-${i}`,
+      kind: 'glyph',
+      glyph: `timeSig${numStr[i]}`,
+      x: curX,
+      y: 1.0,
+    });
+    items.push({
+      id: `timesig-den-${i}`,
+      kind: 'glyph',
+      glyph: `timeSig${denStr[i]}`,
+      x: curX,
+      y: 3.0,
+    });
+    curX += 1.4;
+  }
+
+  return { items, width: curX - startX + 0.8 };
+}
+
+/**
+ * Computes natural layout items and natural width for a single measure.
+ * Uses a WeakMap cache keyed by the StaffMeasure reference for O(1) retrieval of unchanged measures.
+ */
+export function layoutSingleMeasure(
+  staffMeasure: StaffMeasure | undefined,
+  mDef: MeasureDef,
+  clef: Clef,
+  isFirstMeasure: boolean,
+  isLastMeasure: boolean
+): MeasureLayoutChunk {
+  measureLayoutCacheStats.calls++;
+
+  const cacheKey = `${mDef.id}_${mDef.keySig}_${mDef.timeSig.num}/${mDef.timeSig.den}_${clef.sign}${clef.line}_${isFirstMeasure}_${isLastMeasure}`;
+
+  if (staffMeasure) {
+    const existing = measureChunkCache.get(staffMeasure);
+    if (existing && existing.has(cacheKey)) {
+      measureLayoutCacheStats.hits++;
+      return existing.get(cacheKey)!;
+    }
+  }
+
+  measureLayoutCacheStats.misses++;
+
+  const events: ScoreEvent[] = staffMeasure?.voices[0]?.events ?? [];
+  const tracker = new MeasureAccidentalTracker(mDef.keySig);
+  const measureItems: MeasureItemEntry[] = [];
+  let relX = 0;
+
+  // Time signature in first measure
+  if (isFirstMeasure) {
+    const tsLayout = createTimeSigItems(relX, mDef.timeSig);
+    for (const item of tsLayout.items) {
+      measureItems.push({ item });
+    }
+    relX += tsLayout.width;
+  }
+
+  // Process events
+  for (let eIdx = 0; eIdx < events.length; eIdx++) {
+    const ev = events[eIdx];
+    const isWholeMeasureRest = ev.kind === 'rest' && Boolean((ev as RestEvent).wholeMeasure);
+    const durationFactor = ev.duration / PPQ;
+    const eventWidth = isWholeMeasureRest ? 8.0 : 3.5 + durationFactor * 2.0;
+
+    let firstEventAccidentalPadding = 0;
+    if (eIdx === 0 && ev.kind === 'note') {
+      const noteEv = ev as NoteEvent;
+      const hasAccidental = noteEv.pitches.some((p) => {
+        const activeAlter = getKeySignatureAlter(p.step, mDef.keySig);
+        return (
+          p.alter !== activeAlter &&
+          Number.isInteger(p.alter) &&
+          p.alter >= -2 &&
+          p.alter <= 2
+        );
+      });
+      if (hasAccidental) {
+        firstEventAccidentalPadding = 1.2;
+      }
+    }
+
+    const eventCenterX = isWholeMeasureRest
+      ? relX + eventWidth / 2 - 0.7
+      : relX + 0.8 + firstEventAccidentalPadding;
+
+    if (ev.kind === 'rest') {
+      let restGlyph = 'restQuarter';
+      let restY = 2.0;
+
+      if (isWholeMeasureRest) {
+        restGlyph = 'restWhole';
+        restY = 1.0;
+      } else {
+        switch (ev.baseType) {
+          case 'whole':
+            restGlyph = 'restWhole';
+            restY = 1.0;
+            break;
+          case 'half':
+            restGlyph = 'restHalf';
+            restY = 2.0;
+            break;
+          case 'quarter':
+            restGlyph = 'restQuarter';
+            restY = 2.0;
+            break;
+          case 'eighth':
+            restGlyph = 'rest8th';
+            restY = 2.0;
+            break;
+          case '16th':
+            restGlyph = 'rest16th';
+            restY = 2.0;
+            break;
+          case '32nd':
+            restGlyph = 'rest32nd';
+            restY = 2.0;
+            break;
+        }
+      }
+
+      measureItems.push({
+        item: {
+          id: ev.id,
+          eventId: ev.id,
+          kind: 'glyph',
+          glyph: restGlyph,
+          x: eventCenterX,
+          y: restY,
+        },
+      });
+
+      if (ev.dots > 0) {
+        for (let d = 0; d < ev.dots; d++) {
+          measureItems.push({
+            item: {
+              id: `${ev.id}-dot-${d}`,
+              eventId: ev.id,
+              kind: 'glyph',
+              glyph: 'augmentationDot',
+              x: eventCenterX + 1.2 + d * 0.5,
+              y: restY,
+            },
+          });
+        }
+      }
+    } else if (ev.kind === 'note') {
+      const noteEv = ev as NoteEvent;
+      const sortedPitches = [...noteEv.pitches].sort((a, b) => {
+        return pitchToStaffPosition(a, clef) - pitchToStaffPosition(b, clef);
+      });
+
+      const stepPositions = sortedPitches.map((p) => pitchToStaffPosition(p, clef));
+      const meanStepPos =
+        stepPositions.reduce((sum, sp) => sum + sp, 0) / (stepPositions.length || 1);
+      const stemDir = getStemDirection(meanStepPos);
+
+      let noteheadGlyph = 'noteheadBlack';
+      if (ev.baseType === 'whole') {
+        noteheadGlyph = 'noteheadWhole';
+      } else if (ev.baseType === 'half') {
+        noteheadGlyph = 'noteheadHalf';
+      }
+
+      // Chords: check for seconds displacement
+      const isDisplaced: boolean[] = new Array(sortedPitches.length).fill(false);
+      for (let pIdx = 1; pIdx < sortedPitches.length; pIdx++) {
+        if (stepPositions[pIdx] - stepPositions[pIdx - 1] === 1) {
+          if (stemDir === 'up') {
+            isDisplaced[pIdx] = true;
+          } else {
+            isDisplaced[pIdx - 1] = true;
+          }
+        }
+      }
+
+      // Accidentals
+      for (let pIdx = 0; pIdx < sortedPitches.length; pIdx++) {
+        const pitch = sortedPitches[pIdx];
+        const accGlyph = tracker.processPitch(pitch);
+        if (accGlyph) {
+          const accY = staffPositionToY(stepPositions[pIdx]);
+          measureItems.push({
+            item: {
+              id: `${ev.id}-acc-${pIdx}`,
+              eventId: ev.id,
+              kind: 'glyph',
+              glyph: accGlyph,
+              x: eventCenterX - 1.2,
+              y: accY,
+            },
+          });
+        }
+      }
+
+      // Noteheads & Ledger lines
+      for (let pIdx = 0; pIdx < sortedPitches.length; pIdx++) {
+        const stepPos = stepPositions[pIdx];
+        const noteY = staffPositionToY(stepPos);
+        let noteX = eventCenterX;
+
+        if (isDisplaced[pIdx]) {
+          noteX += stemDir === 'up' ? NOTEHEAD_WIDTH : -NOTEHEAD_WIDTH;
+        }
+
+        measureItems.push({
+          item: {
+            id: pIdx === 0 ? ev.id : `${ev.id}-pitch-${pIdx}`,
+            eventId: ev.id,
+            kind: 'glyph',
+            glyph: noteheadGlyph,
+            x: noteX,
+            y: noteY,
+          },
+        });
+
+        const ledgerYs = getLedgerLineYs(stepPos);
+        for (const lY of ledgerYs) {
+          measureItems.push({
+            item: {
+              id: `${ev.id}-ledger-${pIdx}-${lY}`,
+              eventId: ev.id,
+              kind: 'line',
+              x: noteX - LEDGER_EXTENSION,
+              y: lY,
+              x2: noteX + NOTEHEAD_WIDTH + LEDGER_EXTENSION,
+              y2: lY,
+              thickness: LEDGER_THICKNESS,
+            },
+            ledgerNoteRelativeX: noteX,
+          });
+        }
+
+        if (ev.dots > 0) {
+          const dotY = stepPos % 2 === 0 ? noteY - 0.5 : noteY;
+          const dotBaseX = noteX + NOTEHEAD_WIDTH + 0.3;
+          for (let d = 0; d < ev.dots; d++) {
+            measureItems.push({
+              item: {
+                id: `${ev.id}-dot-${pIdx}-${d}`,
+                eventId: ev.id,
+                kind: 'glyph',
+                glyph: 'augmentationDot',
+                x: dotBaseX + d * 0.4,
+                y: dotY,
+              },
+            });
+          }
+        }
+      }
+
+      // Stems & Flags
+      if (ev.baseType !== 'whole') {
+        const lowestStep = stepPositions[0];
+        const highestStep = stepPositions[stepPositions.length - 1];
+
+        let stemX = eventCenterX;
+        let stemStartY = 0;
+        let stemEndY = 0;
+
+        if (stemDir === 'up') {
+          stemX = eventCenterX + NOTEHEAD_WIDTH;
+          stemStartY = staffPositionToY(lowestStep) - 0.168;
+          stemEndY = staffPositionToY(highestStep) - STEM_LENGTH;
+        } else {
+          stemX = eventCenterX;
+          stemStartY = staffPositionToY(highestStep) + 0.168;
+          stemEndY = staffPositionToY(lowestStep) + STEM_LENGTH;
+        }
+
+        measureItems.push({
+          item: {
+            id: `${ev.id}-stem`,
+            eventId: ev.id,
+            kind: 'line',
+            x: stemX,
+            y: stemStartY,
+            x2: stemX,
+            y2: stemEndY,
+            thickness: STEM_THICKNESS,
+          },
+        });
+
+        if (ev.baseType === 'eighth' || ev.baseType === '16th' || ev.baseType === '32nd') {
+          let flagGlyph = '';
+          if (ev.baseType === 'eighth') {
+            flagGlyph = stemDir === 'up' ? 'flag8thUp' : 'flag8thDown';
+          } else if (ev.baseType === '16th') {
+            flagGlyph = stemDir === 'up' ? 'flag16thUp' : 'flag16thDown';
+          } else if (ev.baseType === '32nd') {
+            flagGlyph = stemDir === 'up' ? 'flag32ndUp' : 'flag32ndDown';
+          }
+
+          if (flagGlyph) {
+            measureItems.push({
+              item: {
+                id: `${ev.id}-flag`,
+                eventId: ev.id,
+                kind: 'glyph',
+                glyph: flagGlyph,
+                x: stemX,
+                y: stemEndY,
+              },
+            });
+          }
+        }
+      }
+    }
+
+    relX += eventWidth + firstEventAccidentalPadding;
+  }
+
+  // Barline at end of measure
+  const barlineX = relX + 0.6;
+  let barlineItemIndex = measureItems.length;
+
+  if (isLastMeasure) {
+    measureItems.push({
+      item: {
+        id: `barline-${mDef.id}-thin`,
+        kind: 'line',
+        x: barlineX,
+        y: 0,
+        x2: barlineX,
+        y2: 4,
+        thickness: BARLINE_THICKNESS,
+      },
+    });
+    measureItems.push({
+      item: {
+        id: `barline-${mDef.id}-thick`,
+        kind: 'line',
+        x: barlineX + 0.4,
+        y: 0,
+        x2: barlineX + 0.4,
+        y2: 4,
+        thickness: THICK_BARLINE_THICKNESS,
+      },
+    });
+    relX = barlineX + 0.4 + THICK_BARLINE_THICKNESS;
+  } else {
+    measureItems.push({
+      item: {
+        id: `barline-${mDef.id}`,
+        kind: 'line',
+        x: barlineX,
+        y: 0,
+        x2: barlineX,
+        y2: 4,
+        thickness: BARLINE_THICKNESS,
+      },
+    });
+    relX = barlineX + BARLINE_THICKNESS;
+  }
+
+  const chunk: MeasureLayoutChunk = {
+    measureDefId: mDef.id,
+    items: measureItems,
+    naturalWidth: relX,
+    barlineItemIndex,
+  };
+
+  if (staffMeasure) {
+    let map = measureChunkCache.get(staffMeasure);
+    if (!map) {
+      map = new Map();
+      measureChunkCache.set(staffMeasure, map);
+    }
+    map.set(cacheKey, chunk);
+  }
+
+  return chunk;
 }
 
 /**
@@ -121,33 +529,6 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
     return { items, width: curX - startX + 0.4 };
   }
 
-  function createTimeSigItems(startX: number, timeSig: { num: number; den: number }): { items: LayoutItem[]; width: number } {
-    const items: LayoutItem[] = [];
-    const numStr = timeSig.num.toString();
-    const denStr = timeSig.den.toString();
-
-    let curX = startX;
-    for (let i = 0; i < numStr.length; i++) {
-      items.push({
-        id: `timesig-num-${i}`,
-        kind: 'glyph',
-        glyph: `timeSig${numStr[i]}`,
-        x: curX,
-        y: 1.0,
-      });
-      items.push({
-        id: `timesig-den-${i}`,
-        kind: 'glyph',
-        glyph: `timeSig${denStr[i]}`,
-        x: curX,
-        y: 3.0,
-      });
-      curX += 1.4;
-    }
-
-    return { items, width: curX - startX + 0.8 };
-  }
-
   // Measure each measure definition into a natural chunk
   const measureChunks: MeasureLayoutChunk[] = [];
 
@@ -156,331 +537,12 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
     const isFirstMeasure = mIdx === 0;
     const isLastMeasure = mIdx === score.measures.length - 1;
     const staffMeasure = staff?.measures[mDef.id];
-    const events: ScoreEvent[] = staffMeasure?.voices[0]?.events ?? [];
-
-    const tracker = new MeasureAccidentalTracker(mDef.keySig);
-    const measureItems: MeasureItemEntry[] = [];
-    let relX = 0;
-
-    // Time signature in first measure
-    if (isFirstMeasure) {
-      const tsLayout = createTimeSigItems(relX, mDef.timeSig);
-      for (const item of tsLayout.items) {
-        measureItems.push({ item });
-      }
-      relX += tsLayout.width;
-    }
-
-    // Process events
-    for (let eIdx = 0; eIdx < events.length; eIdx++) {
-      const ev = events[eIdx];
-      const isWholeMeasureRest = ev.kind === 'rest' && Boolean((ev as RestEvent).wholeMeasure);
-      const durationFactor = ev.duration / PPQ;
-      const eventWidth = isWholeMeasureRest ? 8.0 : 3.5 + durationFactor * 2.0;
-
-      // Prevent first event accidental from touching the preceding header / time signature.
-      // Gap between the last header glyph and accidental must be at least 0.8 staff spaces.
-      let firstEventAccidentalPadding = 0;
-      if (eIdx === 0 && ev.kind === 'note') {
-        const noteEv = ev as NoteEvent;
-        const hasAccidental = noteEv.pitches.some((p) => {
-          const activeAlter = getKeySignatureAlter(p.step, mDef.keySig);
-          return (
-            p.alter !== activeAlter &&
-            Number.isInteger(p.alter) &&
-            p.alter >= -2 &&
-            p.alter <= 2
-          );
-        });
-        if (hasAccidental) {
-          firstEventAccidentalPadding = 1.2;
-        }
-      }
-
-      const eventCenterX = isWholeMeasureRest
-        ? relX + eventWidth / 2 - 0.7
-        : relX + 0.8 + firstEventAccidentalPadding;
-
-      if (ev.kind === 'rest') {
-        let restGlyph = 'restQuarter';
-        let restY = 2.0;
-
-        if (isWholeMeasureRest) {
-          restGlyph = 'restWhole';
-          restY = 1.0;
-        } else {
-          switch (ev.baseType) {
-            case 'whole':
-              restGlyph = 'restWhole';
-              restY = 1.0;
-              break;
-            case 'half':
-              restGlyph = 'restHalf';
-              restY = 2.0;
-              break;
-            case 'quarter':
-              restGlyph = 'restQuarter';
-              restY = 2.0;
-              break;
-            case 'eighth':
-              restGlyph = 'rest8th';
-              restY = 2.0;
-              break;
-            case '16th':
-              restGlyph = 'rest16th';
-              restY = 2.0;
-              break;
-            case '32nd':
-              restGlyph = 'rest32nd';
-              restY = 2.0;
-              break;
-          }
-        }
-
-        measureItems.push({
-          item: {
-            id: ev.id,
-            eventId: ev.id,
-            kind: 'glyph',
-            glyph: restGlyph,
-            x: eventCenterX,
-            y: restY,
-          },
-        });
-
-        if (ev.dots > 0) {
-          for (let d = 0; d < ev.dots; d++) {
-            measureItems.push({
-              item: {
-                id: `${ev.id}-dot-${d}`,
-                eventId: ev.id,
-                kind: 'glyph',
-                glyph: 'augmentationDot',
-                x: eventCenterX + 1.2 + d * 0.5,
-                y: restY,
-              },
-            });
-          }
-        }
-      } else if (ev.kind === 'note') {
-        const noteEv = ev as NoteEvent;
-        const sortedPitches = [...noteEv.pitches].sort((a, b) => {
-          return pitchToStaffPosition(a, clef) - pitchToStaffPosition(b, clef);
-        });
-
-        const stepPositions = sortedPitches.map((p) => pitchToStaffPosition(p, clef));
-        const meanStepPos =
-          stepPositions.reduce((sum, sp) => sum + sp, 0) / (stepPositions.length || 1);
-        const stemDir = getStemDirection(meanStepPos);
-
-        let noteheadGlyph = 'noteheadBlack';
-        if (ev.baseType === 'whole') {
-          noteheadGlyph = 'noteheadWhole';
-        } else if (ev.baseType === 'half') {
-          noteheadGlyph = 'noteheadHalf';
-        }
-
-        // Chords: check for seconds displacement
-        const isDisplaced: boolean[] = new Array(sortedPitches.length).fill(false);
-        for (let pIdx = 1; pIdx < sortedPitches.length; pIdx++) {
-          if (stepPositions[pIdx] - stepPositions[pIdx - 1] === 1) {
-            if (stemDir === 'up') {
-              isDisplaced[pIdx] = true;
-            } else {
-              isDisplaced[pIdx - 1] = true;
-            }
-          }
-        }
-
-        // Accidentals
-        for (let pIdx = 0; pIdx < sortedPitches.length; pIdx++) {
-          const pitch = sortedPitches[pIdx];
-          const accGlyph = tracker.processPitch(pitch);
-          if (accGlyph) {
-            const accY = staffPositionToY(stepPositions[pIdx]);
-            measureItems.push({
-              item: {
-                id: `${ev.id}-acc-${pIdx}`,
-                eventId: ev.id,
-                kind: 'glyph',
-                glyph: accGlyph,
-                x: eventCenterX - 1.2,
-                y: accY,
-              },
-            });
-          }
-        }
-
-        // Noteheads & Ledger lines
-        for (let pIdx = 0; pIdx < sortedPitches.length; pIdx++) {
-          const stepPos = stepPositions[pIdx];
-          const noteY = staffPositionToY(stepPos);
-          let noteX = eventCenterX;
-
-          if (isDisplaced[pIdx]) {
-            noteX += stemDir === 'up' ? NOTEHEAD_WIDTH : -NOTEHEAD_WIDTH;
-          }
-
-          measureItems.push({
-            item: {
-              id: pIdx === 0 ? ev.id : `${ev.id}-pitch-${pIdx}`,
-              eventId: ev.id,
-              kind: 'glyph',
-              glyph: noteheadGlyph,
-              x: noteX,
-              y: noteY,
-            },
-          });
-
-          // Ledger lines (centered on notehead)
-          const ledgerYs = getLedgerLineYs(stepPos);
-          for (const lY of ledgerYs) {
-            measureItems.push({
-              item: {
-                id: `${ev.id}-ledger-${pIdx}-${lY}`,
-                eventId: ev.id,
-                kind: 'line',
-                x: noteX - LEDGER_EXTENSION,
-                y: lY,
-                x2: noteX + NOTEHEAD_WIDTH + LEDGER_EXTENSION,
-                y2: lY,
-                thickness: LEDGER_THICKNESS,
-              },
-              ledgerNoteRelativeX: noteX,
-            });
-          }
-
-          // Augmentation dots
-          if (ev.dots > 0) {
-            const dotY = stepPos % 2 === 0 ? noteY - 0.5 : noteY;
-            const dotBaseX = noteX + NOTEHEAD_WIDTH + 0.3;
-            for (let d = 0; d < ev.dots; d++) {
-              measureItems.push({
-                item: {
-                  id: `${ev.id}-dot-${pIdx}-${d}`,
-                  eventId: ev.id,
-                  kind: 'glyph',
-                  glyph: 'augmentationDot',
-                  x: dotBaseX + d * 0.4,
-                  y: dotY,
-                },
-              });
-            }
-          }
-        }
-
-        // Stems & Flags
-        if (ev.baseType !== 'whole') {
-          const lowestStep = stepPositions[0];
-          const highestStep = stepPositions[stepPositions.length - 1];
-
-          let stemX = eventCenterX;
-          let stemStartY = 0;
-          let stemEndY = 0;
-
-          if (stemDir === 'up') {
-            stemX = eventCenterX + NOTEHEAD_WIDTH;
-            stemStartY = staffPositionToY(lowestStep) - 0.168;
-            stemEndY = staffPositionToY(highestStep) - STEM_LENGTH;
-          } else {
-            stemX = eventCenterX;
-            stemStartY = staffPositionToY(highestStep) + 0.168;
-            stemEndY = staffPositionToY(lowestStep) + STEM_LENGTH;
-          }
-
-          measureItems.push({
-            item: {
-              id: `${ev.id}-stem`,
-              eventId: ev.id,
-              kind: 'line',
-              x: stemX,
-              y: stemStartY,
-              x2: stemX,
-              y2: stemEndY,
-              thickness: STEM_THICKNESS,
-            },
-          });
-
-          if (ev.baseType === 'eighth' || ev.baseType === '16th' || ev.baseType === '32nd') {
-            let flagGlyph = '';
-            if (ev.baseType === 'eighth') {
-              flagGlyph = stemDir === 'up' ? 'flag8thUp' : 'flag8thDown';
-            } else if (ev.baseType === '16th') {
-              flagGlyph = stemDir === 'up' ? 'flag16thUp' : 'flag16thDown';
-            } else if (ev.baseType === '32nd') {
-              flagGlyph = stemDir === 'up' ? 'flag32ndUp' : 'flag32ndDown';
-            }
-
-            if (flagGlyph) {
-              measureItems.push({
-                item: {
-                  id: `${ev.id}-flag`,
-                  eventId: ev.id,
-                  kind: 'glyph',
-                  glyph: flagGlyph,
-                  x: stemX,
-                  y: stemEndY,
-                },
-              });
-            }
-          }
-        }
-      }
-
-      relX += eventWidth + firstEventAccidentalPadding;
-    }
-
-    // Barline at end of measure
-    const barlineX = relX + 0.6;
-    let barlineItemIndex = measureItems.length;
-
-    if (isLastMeasure) {
-      measureItems.push({
-        item: {
-          id: `barline-${mDef.id}-thin`,
-          kind: 'line',
-          x: barlineX,
-          y: 0,
-          x2: barlineX,
-          y2: 4,
-          thickness: BARLINE_THICKNESS,
-        },
-      });
-      measureItems.push({
-        item: {
-          id: `barline-${mDef.id}-thick`,
-          kind: 'line',
-          x: barlineX + 0.4,
-          y: 0,
-          x2: barlineX + 0.4,
-          y2: 4,
-          thickness: THICK_BARLINE_THICKNESS,
-        },
-      });
-      relX = barlineX + 0.4 + THICK_BARLINE_THICKNESS;
-    } else {
-      measureItems.push({
-        item: {
-          id: `barline-${mDef.id}`,
-          kind: 'line',
-          x: barlineX,
-          y: 0,
-          x2: barlineX,
-          y2: 4,
-          thickness: BARLINE_THICKNESS,
-        },
-      });
-      relX = barlineX + BARLINE_THICKNESS;
-    }
-
-    measureChunks.push({
-      measureDefId: mDef.id,
-      items: measureItems,
-      naturalWidth: relX,
-      barlineItemIndex,
-    });
+    measureChunks.push(
+      layoutSingleMeasure(staffMeasure, mDef, clef, isFirstMeasure, isLastMeasure)
+    );
   }
 
+  // Pack measures into systems with width check
   // Pack measures into systems with width check
   interface SystemPlan {
     measures: MeasureLayoutChunk[];
