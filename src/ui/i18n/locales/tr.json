@@ -63,6 +63,7 @@
   "dialog.newScore.confirmDiscard": "Mevcut eserde kaydedilmemiş değişiklikler var. Yeni eser oluşturmak istediğinizden emin misiniz?",
   "dialog.confirm": "Onayla",
   "dialog.cancel": "İptal",
+  "error.noCursor": "İmleç yok, bir ölçüye tıklayın",
   "error.doesNotFit": "Nota ölçüye sığmıyor",
   "error.generic": "Bir hata oluştu"
 }

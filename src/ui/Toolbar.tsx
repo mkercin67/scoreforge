@@ -49,6 +49,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 }) => {
   const { t, language, setLanguage, noteNameStyle, setNoteNameStyle, zoom, setZoom } = useI18n();
 
+  const handleButtonClick = (cb: () => void) => (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.blur();
+    cb();
+  };
+
   return (
     <header
       style={{
@@ -81,7 +86,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         <button
           type="button"
-          onClick={onOpenNewScore}
+          onClick={handleButtonClick(onOpenNewScore)}
+          onMouseDown={(e) => e.preventDefault()}
           title={t('dialog.newScore.title')}
           style={{
             padding: '0.4rem 0.75rem',
@@ -101,7 +107,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         <button
           type="button"
-          onClick={onUndo}
+          onClick={handleButtonClick(onUndo)}
+          onMouseDown={(e) => e.preventDefault()}
           disabled={!canUndo}
           style={{
             display: 'inline-flex',
@@ -121,7 +128,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </button>
         <button
           type="button"
-          onClick={onRedo}
+          onClick={handleButtonClick(onRedo)}
+          onMouseDown={(e) => e.preventDefault()}
           disabled={!canRedo}
           style={{
             display: 'inline-flex',
@@ -145,7 +153,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
         <button
           type="button"
-          onClick={onToggleInputMode}
+          onClick={handleButtonClick(onToggleInputMode)}
+          onMouseDown={(e) => e.preventDefault()}
           title={`${t('toolbar.noteInput')} (N)`}
           style={{
             display: 'inline-flex',
@@ -184,7 +193,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <button
                 key={dur.type}
                 type="button"
-                onClick={() => onChangeDuration(dur.type)}
+                onClick={handleButtonClick(() => onChangeDuration(dur.type))}
+                onMouseDown={(e) => e.preventDefault()}
                 title={t(dur.label)}
                 style={{
                   display: 'flex',
@@ -212,7 +222,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Dot button */}
           <button
             type="button"
-            onClick={onToggleDot}
+            onClick={handleButtonClick(onToggleDot)}
+            onMouseDown={(e) => e.preventDefault()}
             title={t('palette.dot')}
             style={{
               display: 'flex',
@@ -236,7 +247,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Rest toggle button */}
           <button
             type="button"
-            onClick={onToggleRest}
+            onClick={handleButtonClick(onToggleRest)}
+            onMouseDown={(e) => e.preventDefault()}
             title={t('palette.rest')}
             style={{
               display: 'flex',
@@ -269,7 +281,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <select
             id="zoom-select"
             value={zoom}
-            onChange={(e) => setZoom(parseFloat(e.target.value))}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value);
+              e.target.blur();
+              setZoom(val);
+            }}
             style={{
               padding: '0.35rem 0.6rem',
               fontSize: '0.825rem',
@@ -295,7 +311,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <select
             id="notename-select"
             value={noteNameStyle}
-            onChange={(e) => setNoteNameStyle(e.target.value as NoteNameStyle)}
+            onChange={(e) => {
+              const val = e.target.value as NoteNameStyle;
+              e.target.blur();
+              setNoteNameStyle(val);
+            }}
             style={{
               padding: '0.35rem 0.6rem',
               fontSize: '0.825rem',
@@ -319,7 +339,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <select
             id="language-select"
             value={language}
-            onChange={(e) => setLanguage(e.target.value as Language)}
+            onChange={(e) => {
+              const val = e.target.value as Language;
+              e.target.blur();
+              setLanguage(val);
+            }}
             style={{
               padding: '0.35rem 0.6rem',
               fontSize: '0.825rem',

@@ -43,6 +43,7 @@ const EditorShell: React.FC = () => {
     setIsRestSelected,
     toggleRestSelected,
     cursor,
+    setCursorToMeasure,
     currentMeasureNumber,
     rejectedError,
     triggerRejectedError,
@@ -54,6 +55,7 @@ const EditorShell: React.FC = () => {
   const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
 
   const handleCreateNewScore = (config: NewScoreConfig) => {
+    const t0 = performance.now();
     const fresh = createEmptyScore({
       clef: config.clef,
       keySig: config.keySig,
@@ -62,6 +64,8 @@ const EditorShell: React.FC = () => {
     });
     resetScore(fresh);
     setIsInputMode(true);
+    const elapsed = performance.now() - t0;
+    console.log(`[PERF] createEmptyScore & resetScore took: ${elapsed.toFixed(2)} ms`);
   };
 
   // Support visual verification states via query parameters
@@ -118,15 +122,13 @@ const EditorShell: React.FC = () => {
       setActiveDots(0);
 
       if (stateParam === 'verify_1') {
-        // State 1: fresh score (whole rests centered, cursor in measure 1)
         return;
       }
 
-      // Helper to enter a sequence of notes
       const enterNoteSeq = (letter: any, dur: any, dots = 0) => {
         setActiveDuration(dur);
         setActiveDots(dots);
-        enterPitchAtCursor(letter, t('error.doesNotFit'));
+        enterPitchAtCursor(letter, t('error.doesNotFit'), t('error.noCursor'));
       };
 
       // State 2: press N, Digit5, then C D E F (measure 1 holds C5 D5 E5 F5)
@@ -144,7 +146,7 @@ const EditorShell: React.FC = () => {
       if (stateParam === 'verify_3') return;
 
       // State 4: Digit0 (eighth rest), then Digit6 and E: must be REJECTED, status message visible, nothing changed
-      enterRestAtCursor(t('error.doesNotFit'));
+      enterRestAtCursor(t('error.doesNotFit'), t('error.noCursor'));
       if (stateParam === 'verify_4') {
         setActiveDuration('half');
         triggerRejectedError(t('error.doesNotFit'));
@@ -192,13 +194,19 @@ const EditorShell: React.FC = () => {
   // Global physical keyboard event handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept typing if user focuses an input, select, or modal
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLSelectElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
+      // Ignore only typing inside text / number inputs or textareas (e.g. modal form inputs)
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
+      }
+
+      // If a button or select is focused, release focus so it never swallows shortcuts
+      if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLSelectElement) {
+        if (e.code === 'Space' || e.code === 'Enter') {
+          e.preventDefault();
+          (e.target as HTMLElement).blur();
+          return;
+        }
+        (e.target as HTMLElement).blur();
       }
 
       const action = mapKeyEvent(e, isInputMode);
@@ -263,7 +271,7 @@ const EditorShell: React.FC = () => {
             }
             break;
           case 'enter-rest':
-            enterRestAtCursor(t('error.doesNotFit'));
+            enterRestAtCursor(t('error.doesNotFit'), t('error.noCursor'));
             break;
           case 'toggle-dot':
             toggleDot();
@@ -271,7 +279,7 @@ const EditorShell: React.FC = () => {
         }
       } else if (typeof action === 'object') {
         if (action.type === 'enter-pitch') {
-          enterPitchAtCursor(action.letter, t('error.doesNotFit'));
+          enterPitchAtCursor(action.letter, t('error.doesNotFit'), t('error.noCursor'));
         } else if (action.type === 'set-duration') {
           setActiveDuration(action.baseType);
           setIsRestSelected(false);
@@ -335,6 +343,7 @@ const EditorShell: React.FC = () => {
         onSelectEvent={selectEvent}
         cursor={cursor}
         isInputMode={isInputMode}
+        onSelectMeasure={setCursorToMeasure}
       />
       <StatusBar
         selection={selectedEventInfo}

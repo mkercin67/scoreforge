@@ -63,6 +63,7 @@
   "dialog.newScore.confirmDiscard": "There are unsaved changes in the score. Are you sure you want to create a new score?",
   "dialog.confirm": "Confirm",
   "dialog.cancel": "Cancel",
+  "error.noCursor": "No cursor, click a measure",
   "error.doesNotFit": "Note does not fit in measure",
   "error.generic": "An error occurred"
 }

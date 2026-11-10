@@ -8,6 +8,7 @@ import {
   BaseDurationType,
   Clef,
   Id,
+  NoteEvent,
   Pitch,
   PitchStep,
   RestEvent,
@@ -88,6 +89,7 @@ export interface InputNoteSpec {
   baseType: BaseDurationType;
   dots?: number;
   pitch?: Pitch;
+  eventId?: Id;
 }
 
 export type PlanResult =
@@ -185,11 +187,13 @@ export function planEnter(
   const newEvent: ScoreEvent =
     spec.kind === 'note'
       ? createNote({
+          id: spec.eventId,
           baseType: spec.baseType,
           dots,
           pitches: spec.pitch ? [{ ...spec.pitch }] : [],
         })
       : createRest({
+          id: spec.eventId,
           baseType: spec.baseType,
           dots,
         });
@@ -254,12 +258,58 @@ export function enterEventCommand(cursor: ScoreCursor, spec: InputNoteSpec): Com
   };
 }
 
-export function enterNote(cursor: ScoreCursor, spec: Omit<InputNoteSpec, 'kind'>): Command {
-  return enterEventCommand(cursor, { ...spec, kind: 'note' });
+export function enterNote(
+  cursor: ScoreCursor,
+  spec: Omit<InputNoteSpec, 'kind'>,
+  eventId?: Id
+): Command {
+  return enterEventCommand(cursor, { ...spec, kind: 'note', eventId: eventId ?? spec.eventId });
 }
 
-export function enterRest(cursor: ScoreCursor, spec: Omit<InputNoteSpec, 'kind' | 'pitch'>): Command {
-  return enterEventCommand(cursor, { ...spec, kind: 'rest' });
+export function enterRest(
+  cursor: ScoreCursor,
+  spec: Omit<InputNoteSpec, 'kind' | 'pitch'>,
+  eventId?: Id
+): Command {
+  return enterEventCommand(cursor, { ...spec, kind: 'rest', eventId: eventId ?? spec.eventId });
+}
+
+/**
+ * Finds the pitch of the last note preceding the cursor in the staff voice.
+ */
+export function getLastNotePitchBeforeCursor(score: Score, cursor: ScoreCursor | null): Pitch | null {
+  if (!cursor) return null;
+  const staff = score.parts[0]?.staves.find((s) => s.id === cursor.staffId);
+  if (!staff) return null;
+
+  const mIdx = score.measures.findIndex((m) => m.id === cursor.measureId);
+  if (mIdx === -1) return null;
+
+  for (let i = mIdx; i >= 0; i--) {
+    const mDef = score.measures[i];
+    const sm = staff.measures[mDef.id];
+    const voice = sm?.voices.find((v) => v.id === cursor.voiceId) ?? sm?.voices[0];
+    if (!voice) continue;
+
+    let t = 0;
+    const notesBefore: Pitch[] = [];
+    for (const ev of voice.events) {
+      if (i === mIdx && t >= cursor.tick) break;
+      if (ev.kind === 'note') {
+        const noteEv = ev as NoteEvent;
+        if (noteEv.pitches.length > 0) {
+          notesBefore.push(noteEv.pitches[0]);
+        }
+      }
+      t += ev.duration;
+    }
+
+    if (notesBefore.length > 0) {
+      return notesBefore[notesBefore.length - 1];
+    }
+  }
+
+  return null;
 }
 
 /**

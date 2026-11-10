@@ -21,6 +21,7 @@ import {
   appendMeasure,
   enterNote,
   enterRest,
+  getLastNotePitchBeforeCursor,
   moveCursor,
   pitchFromLetter,
   planEnter,
@@ -28,6 +29,7 @@ import {
   snapCursor,
 } from '../core/input';
 import { durationTicks, measureTicks } from '../core/time';
+import { newId } from '../core/factory';
 import { buildSampleScore } from './Demo';
 
 export interface SelectedEventInfo {
@@ -43,8 +45,8 @@ export interface SelectedEventInfo {
 }
 
 export function useEditor(initialScore?: Score) {
-  const [history, setHistory] = useState<History>(() => new History(initialScore ?? buildSampleScore('G')));
-  const [score, setScore] = useState<Score>(() => history.score);
+  const historyRef = useRef<History>(new History(initialScore ?? buildSampleScore('G')));
+  const [score, setScore] = useState<Score>(() => historyRef.current.score);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   // Note Input Mode states
@@ -54,14 +56,16 @@ export function useEditor(initialScore?: Score) {
   const [isRestSelected, setIsRestSelected] = useState<boolean>(false);
 
   const [cursor, setCursor] = useState<ScoreCursor | null>(() => {
-    const sId = history.score.parts[0]?.staves[0]?.id;
-    const mId = history.score.measures[0]?.id;
-    const vId = history.score.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
+    const sId = historyRef.current.score.parts[0]?.staves[0]?.id;
+    const mId = historyRef.current.score.measures[0]?.id;
+    const vId = historyRef.current.score.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
     if (sId && mId && vId) {
       return { staffId: sId, voiceId: vId, measureId: mId, tick: 0 };
     }
     return null;
   });
+
+  const lastEnteredPitchRef = useRef<Pitch | null>(null);
 
   const [rejectedError, setRejectedError] = useState<string | null>(null);
   const errorTimerRef = useRef<number | null>(null);
@@ -79,44 +83,52 @@ export function useEditor(initialScore?: Score) {
   }, []);
 
   const resetScore = useCallback((newScore: Score) => {
-    const newHist = new History(newScore);
-    setHistory(newHist);
-    setScore(newHist.score);
+    historyRef.current = new History(newScore);
+    setScore(historyRef.current.score);
     setSelectedEventId(null);
+    lastEnteredPitchRef.current = null;
 
     const sId = newScore.parts[0]?.staves[0]?.id;
     const mId = newScore.measures[0]?.id;
     const vId = newScore.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
     if (sId && mId && vId) {
       setCursor({ staffId: sId, voiceId: vId, measureId: mId, tick: 0 });
+    } else {
+      setCursor(null);
     }
   }, []);
 
-  const executeCommand = useCallback(
-    (cmd: Command) => {
-      const nextScore = history.do(cmd);
-      setScore(nextScore);
-    },
-    [history]
-  );
+  const executeCommand = useCallback((cmd: Command) => {
+    const nextScore = historyRef.current.do(cmd);
+    setScore(nextScore);
+    return nextScore;
+  }, []);
 
   const undo = useCallback(() => {
-    const prevScore = history.undo();
+    const prevScore = historyRef.current.undo();
     if (prevScore) {
       setScore(prevScore);
       setSelectedEventId((curr) => (curr && eventExists(prevScore, curr) ? curr : null));
-      setCursor((c) => (c ? snapCursor(prevScore, c) : null));
+      setCursor((c) => {
+        const nextC = c ? snapCursor(prevScore, c) : null;
+        lastEnteredPitchRef.current = getLastNotePitchBeforeCursor(prevScore, nextC);
+        return nextC;
+      });
     }
-  }, [history]);
+  }, []);
 
   const redo = useCallback(() => {
-    const nextScore = history.redo();
+    const nextScore = historyRef.current.redo();
     if (nextScore) {
       setScore(nextScore);
       setSelectedEventId((curr) => (curr && eventExists(nextScore, curr) ? curr : null));
-      setCursor((c) => (c ? snapCursor(nextScore, c) : null));
+      setCursor((c) => {
+        const nextC = c ? snapCursor(nextScore, c) : null;
+        lastEnteredPitchRef.current = getLastNotePitchBeforeCursor(nextScore, nextC);
+        return nextC;
+      });
     }
-  }, [history]);
+  }, []);
 
   const selectEvent = useCallback((id: string | null) => {
     setSelectedEventId(id);
@@ -138,17 +150,21 @@ export function useEditor(initialScore?: Score) {
   const toggleInputMode = useCallback(() => {
     setIsInputMode((prev) => {
       const next = !prev;
-      if (next && !cursor) {
-        const sId = score.parts[0]?.staves[0]?.id;
-        const mId = score.measures[0]?.id;
-        const vId = score.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
-        if (sId && mId && vId) {
-          setCursor({ staffId: sId, voiceId: vId, measureId: mId, tick: 0 });
-        }
+      if (next) {
+        setCursor((curr) => {
+          if (curr) return curr;
+          const sId = score.parts[0]?.staves[0]?.id;
+          const mId = score.measures[0]?.id;
+          const vId = score.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
+          if (sId && mId && vId) {
+            return { staffId: sId, voiceId: vId, measureId: mId, tick: 0 };
+          }
+          return null;
+        });
       }
       return next;
     });
-  }, [cursor, score]);
+  }, [score]);
 
   const exitInputMode = useCallback(() => {
     setIsInputMode(false);
@@ -162,46 +178,39 @@ export function useEditor(initialScore?: Score) {
     setIsRestSelected((prev) => !prev);
   }, []);
 
-  // Enter a note or rest with the keyboard
+  // Enter a note with the keyboard
   const enterPitchAtCursor = useCallback(
-    (letter: PitchStep, errorMsg: string) => {
-      let activeCursor = cursor;
-      if (!activeCursor) {
-        const sId = score.parts[0]?.staves[0]?.id;
-        const mId = score.measures[0]?.id;
-        const vId = score.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
-        if (!sId || !mId || !vId) return;
-        activeCursor = { staffId: sId, voiceId: vId, measureId: mId, tick: 0 };
-        setCursor(activeCursor);
+    (letter: PitchStep, errorMsg: string, noCursorMsg?: string) => {
+      if (!cursor) {
+        triggerRejectedError(noCursorMsg ?? 'İmleç yok, bir ölçüye tıklayın');
+        return;
       }
 
+      const activeCursor = cursor;
       const mDef = score.measures.find((m) => m.id === activeCursor.measureId);
-      if (!mDef) return;
+      if (!mDef) {
+        triggerRejectedError(errorMsg);
+        return;
+      }
 
       const part = score.parts.find((p) => p.staves.some((s) => s.id === activeCursor.staffId));
       const staff = part?.staves.find((s) => s.id === activeCursor.staffId);
       const clef = staff?.clef ?? { sign: 'G' as const, line: 2 };
       const keySig = mDef.keySig;
 
-      // Determine previous pitch reference
-      let refPitch: Pitch | null = null;
-      if (selectedEventId) {
-        const sm = staff?.measures[activeCursor.measureId];
-        for (const voice of sm?.voices ?? []) {
-          const ev = voice.events.find((e) => e.id === selectedEventId);
-          if (ev && ev.kind === 'note' && (ev as NoteEvent).pitches.length > 0) {
-            refPitch = (ev as NoteEvent).pitches[0];
-            break;
-          }
-        }
-      }
+      // Determine previous pitch reference: LAST ENTERED note, or note before cursor
+      const refPitch =
+        lastEnteredPitchRef.current ?? getLastNotePitchBeforeCursor(score, activeCursor);
 
       const pitch = pitchFromLetter(letter, refPitch, clef, keySig);
+      const eventId = newId();
+
       const plan = planEnter(score, activeCursor, {
         kind: 'note',
         baseType: activeDuration,
         dots: activeDots,
         pitch,
+        eventId,
       });
 
       if (!plan.ok) {
@@ -217,44 +226,48 @@ export function useEditor(initialScore?: Score) {
 
       // If completing the last measure, append new measure first
       if (isLastMeasure && willFinishMeasure) {
-        history.do(appendMeasure());
+        historyRef.current.do(appendMeasure());
       }
 
-      const nextScore = history.do(
+      const nextScore = historyRef.current.do(
         enterNote(activeCursor, {
           baseType: activeDuration,
           dots: activeDots,
           pitch,
+          eventId,
         })
       );
+
       setScore(nextScore);
-      setSelectedEventId(plan.newEvent.id);
+      setSelectedEventId(eventId);
+      lastEnteredPitchRef.current = pitch;
 
       const nextCursor = advanceCursor(nextScore, activeCursor, duration);
       setCursor(nextCursor);
     },
-    [cursor, score, selectedEventId, activeDuration, activeDots, history, triggerRejectedError]
+    [cursor, score, activeDuration, activeDots, triggerRejectedError]
   );
 
   const enterRestAtCursor = useCallback(
-    (errorMsg: string) => {
-      let activeCursor = cursor;
-      if (!activeCursor) {
-        const sId = score.parts[0]?.staves[0]?.id;
-        const mId = score.measures[0]?.id;
-        const vId = score.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
-        if (!sId || !mId || !vId) return;
-        activeCursor = { staffId: sId, voiceId: vId, measureId: mId, tick: 0 };
-        setCursor(activeCursor);
+    (errorMsg: string, noCursorMsg?: string) => {
+      if (!cursor) {
+        triggerRejectedError(noCursorMsg ?? 'İmleç yok, bir ölçüye tıklayın');
+        return;
       }
 
+      const activeCursor = cursor;
       const mDef = score.measures.find((m) => m.id === activeCursor.measureId);
-      if (!mDef) return;
+      if (!mDef) {
+        triggerRejectedError(errorMsg);
+        return;
+      }
 
+      const eventId = newId();
       const plan = planEnter(score, activeCursor, {
         kind: 'rest',
         baseType: activeDuration,
         dots: activeDots,
+        eventId,
       });
 
       if (!plan.ok) {
@@ -269,22 +282,24 @@ export function useEditor(initialScore?: Score) {
       const willFinishMeasure = activeCursor.tick + duration >= mLength;
 
       if (isLastMeasure && willFinishMeasure) {
-        history.do(appendMeasure());
+        historyRef.current.do(appendMeasure());
       }
 
-      const nextScore = history.do(
+      const nextScore = historyRef.current.do(
         enterRest(activeCursor, {
           baseType: activeDuration,
           dots: activeDots,
+          eventId,
         })
       );
+
       setScore(nextScore);
-      setSelectedEventId(plan.newEvent.id);
+      setSelectedEventId(eventId);
 
       const nextCursor = advanceCursor(nextScore, activeCursor, duration);
       setCursor(nextCursor);
     },
-    [cursor, score, activeDuration, activeDots, history, triggerRejectedError]
+    [cursor, score, activeDuration, activeDots, triggerRejectedError]
   );
 
   const moveCursorDirection = useCallback(
@@ -292,6 +307,7 @@ export function useEditor(initialScore?: Score) {
       if (!cursor) return;
       const nextCursor = moveCursor(score, cursor, direction);
       setCursor(nextCursor);
+      lastEnteredPitchRef.current = getLastNotePitchBeforeCursor(score, nextCursor);
 
       // Select event at new cursor position
       const staff = score.parts[0]?.staves.find((s) => s.id === nextCursor.staffId);
@@ -309,6 +325,22 @@ export function useEditor(initialScore?: Score) {
       }
     },
     [cursor, score]
+  );
+
+  // Set cursor to a specific measure (e.g. on click)
+  const setCursorToMeasure = useCallback(
+    (measureId: string, tick = 0) => {
+      const sId = score.parts[0]?.staves[0]?.id;
+      const staff = score.parts[0]?.staves[0];
+      const sm = staff?.measures[measureId];
+      const vId = sm?.voices[0]?.id;
+      if (sId && vId) {
+        const nextC = { staffId: sId, voiceId: vId, measureId, tick };
+        setCursor(nextC);
+        lastEnteredPitchRef.current = getLastNotePitchBeforeCursor(score, nextC);
+      }
+    },
+    [score]
   );
 
   // Locate the selected event and its measure index across the score
@@ -354,8 +386,8 @@ export function useEditor(initialScore?: Score) {
 
   return {
     score,
-    canUndo: history.canUndo(),
-    canRedo: history.canRedo(),
+    canUndo: historyRef.current.canUndo(),
+    canRedo: historyRef.current.canRedo(),
     executeCommand,
     undo,
     redo,
@@ -378,6 +410,7 @@ export function useEditor(initialScore?: Score) {
     toggleRestSelected,
     cursor,
     setCursor,
+    setCursorToMeasure,
     currentMeasureNumber,
     rejectedError,
     triggerRejectedError,

@@ -2,15 +2,14 @@
  * Interactive SVG score canvas container.
  *
  * Implements responsive re-layout via ResizeObserver, zoom scale support,
- * visual selection highlighting, and input cursor rendering.
+ * visual selection highlighting, high-performance cursor overlay, and click selection.
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Score } from '../core/model';
 import { ScoreCursor } from '../core/input';
-import { measureTicks } from '../core/time';
+import { computeCursorPosition } from '../layout/cursor';
 import { layoutScore } from '../layout/layoutScore';
-import { LayoutResult, LayoutSystem } from '../layout/types';
 import { renderSvgToString } from '../render/renderSvg';
 import { useI18n } from './i18n';
 
@@ -20,93 +19,7 @@ export interface ScoreViewProps {
   onSelectEvent: (eventId: string | null) => void;
   cursor?: ScoreCursor | null;
   isInputMode?: boolean;
-}
-
-function computeCursorPosition(
-  layout: LayoutResult,
-  score: Score,
-  cursor: ScoreCursor | null
-): { x: number; y1: number; y2: number } | null {
-  if (!cursor) return null;
-
-  // 1. Find system containing cursor.measureId
-  let targetSystem: LayoutSystem | null = null;
-  for (const sys of layout.systems) {
-    if (sys.items.some((it) => it.id.startsWith(`barline-${cursor.measureId}`))) {
-      targetSystem = sys;
-      break;
-    }
-  }
-  if (!targetSystem && layout.systems.length > 0) {
-    targetSystem = layout.systems[0];
-  }
-  if (!targetSystem) return null;
-
-  const staffY = targetSystem.staves[0]?.y ?? targetSystem.y;
-  const y1 = staffY;
-  const y2 = staffY + 4;
-
-  // 2. Find measure start and end in system
-  const barlineItem = targetSystem.items.find(
-    (it) => it.id === `barline-${cursor.measureId}` || it.id === `barline-${cursor.measureId}-thin`
-  );
-  const barlineX = barlineItem ? barlineItem.x : targetSystem.width;
-
-  let measureStartX = 0;
-  const allBarlinesInSys = targetSystem.items
-    .filter((it) => it.id.startsWith('barline-') && it.x < barlineX - 0.1)
-    .sort((a, b) => b.x - a.x);
-
-  if (allBarlinesInSys.length > 0) {
-    measureStartX = allBarlinesInSys[0].x + (allBarlinesInSys[0].thickness ?? 0.16);
-  } else {
-    // First measure in this system -> starts after system header
-    const headerItems = targetSystem.items.filter(
-      (it) => it.id.startsWith('sys-') || it.id.startsWith('clef-') || it.id.startsWith('keysig-')
-    );
-    measureStartX = headerItems.reduce((max, it) => Math.max(max, it.x + (it.width ?? 1)), 0);
-  }
-
-  // 3. Find event at cursor tick
-  const staff = score.parts[0]?.staves.find((s) => s.id === cursor.staffId);
-  const sm = staff?.measures[cursor.measureId];
-  const voice = sm?.voices.find((v) => v.id === cursor.voiceId) ?? sm?.voices[0];
-
-  const mDef = score.measures.find((m) => m.id === cursor.measureId);
-  const mLength = mDef ? measureTicks(mDef.timeSig) : 3840;
-
-  if (cursor.tick === 0) {
-    // If first measure in score has time signature, cursor goes after timeSig
-    const timeSigItems = targetSystem.items.filter((it) => it.id.startsWith('timesig-'));
-    if (timeSigItems.length > 0) {
-      const tsEnd = timeSigItems.reduce((max, it) => Math.max(max, it.x + 1.2), 0);
-      return { x: tsEnd + 0.4, y1, y2 };
-    }
-    return { x: measureStartX + 0.8, y1, y2 };
-  }
-
-  if (cursor.tick >= mLength) {
-    return { x: barlineX - 0.5, y1, y2 };
-  }
-
-  if (voice) {
-    let t = 0;
-    for (const ev of voice.events) {
-      if (t === cursor.tick) {
-        const evItem = targetSystem.items.find((it) => it.eventId === ev.id && it.kind === 'glyph');
-        if (evItem) {
-          return { x: evItem.x - 0.3, y1, y2 };
-        }
-      }
-      t += ev.duration;
-    }
-
-    const ratio = Math.max(0, Math.min(1, cursor.tick / mLength));
-    const contentWidth = barlineX - measureStartX;
-    return { x: measureStartX + contentWidth * ratio, y1, y2 };
-  }
-
-  return { x: measureStartX + 0.8, y1, y2 };
+  onSelectMeasure?: (measureId: string, tick?: number) => void;
 }
 
 export const ScoreView: React.FC<ScoreViewProps> = ({
@@ -115,6 +28,7 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
   onSelectEvent,
   cursor = null,
   isInputMode = false,
+  onSelectMeasure,
 }) => {
   const { zoom } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -141,26 +55,27 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
   // Convert container pixel width to staff spaces using renderer scale
   const availableStaffSpaces = Math.max(50, Math.floor((containerWidthPx - 64) / staffSpacePx));
 
+  // Compute layout ONLY when score, width or scale changes
   const layout = useMemo(() => {
-    return layoutScore(score, { width: availableStaffSpaces });
+    const t0 = performance.now();
+    const res = layoutScore(score, { width: availableStaffSpaces });
+    const elapsed = performance.now() - t0;
+    if (elapsed > 10) {
+      console.log(`[PERF] layoutScore took ${elapsed.toFixed(2)} ms for ${score.measures.length} measures`);
+    }
+    return res;
   }, [score, availableStaffSpaces]);
 
-  const cursorPosSpaces = useMemo(() => {
-    if (!isInputMode || !cursor) return null;
+  // Compute cursor position as an overlay (does NOT recompute layoutScore)
+  const cursorPos = useMemo(() => {
+    if (!cursor) return null;
     return computeCursorPosition(layout, score, cursor);
-  }, [layout, score, cursor, isInputMode]);
+  }, [layout, score, cursor]);
 
-  const svgHtml = useMemo(() => {
-    const rawSvg = renderSvgToString(layout, { staffSpacePx });
-    if (!cursorPosSpaces || !isInputMode) return rawSvg;
-
-    const cx = cursorPosSpaces.x * staffSpacePx;
-    const cy1 = cursorPosSpaces.y1 * staffSpacePx;
-    const cy2 = cursorPosSpaces.y2 * staffSpacePx;
-
-    const cursorLineSvg = `<line x1="${cx}" y1="${cy1}" x2="${cx}" y2="${cy2}" stroke="#2563eb" stroke-width="2" class="score-input-cursor" />`;
-    return rawSvg.replace('</svg>', `${cursorLineSvg}</svg>`);
-  }, [layout, staffSpacePx, cursorPosSpaces, isInputMode]);
+  // SVG content is rendered once per layout change
+  const rawSvgHtml = useMemo(() => {
+    return renderSvgToString(layout, { staffSpacePx });
+  }, [layout, staffSpacePx]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as Element | null;
@@ -171,12 +86,63 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
       const eventId = hitElement.getAttribute('data-event-id');
       if (eventId) {
         onSelectEvent(eventId);
+
+        // Also place cursor at this event's measure
+        if (onSelectMeasure) {
+          for (let mIdx = 0; mIdx < score.measures.length; mIdx++) {
+            const mDef = score.measures[mIdx];
+            const staff = score.parts[0]?.staves[0];
+            const sm = staff?.measures[mDef.id];
+            const voice = sm?.voices[0];
+            if (!voice) continue;
+
+            let t = 0;
+            let found = false;
+            for (const ev of voice.events) {
+              if (ev.id === eventId) {
+                onSelectMeasure(mDef.id, t);
+                found = true;
+                break;
+              }
+              t += ev.duration;
+            }
+            if (found) break;
+          }
+        }
         return;
+      }
+    }
+
+    // Check if clicked empty measure / system background
+    if (onSelectMeasure) {
+      const sysEl = target.closest('[data-system-index]');
+      if (sysEl) {
+        const sysIdx = parseInt(sysEl.getAttribute('data-system-index') ?? '0', 10);
+        const sys = layout.systems[sysIdx];
+        if (sys) {
+          // Find measure closest to click X
+          const rect = sysEl.getBoundingClientRect();
+          const clickRelX = (e.clientX - rect.left) / staffSpacePx;
+
+          // Find measure barline ending after clickRelX
+          for (const mDef of score.measures) {
+            const barline = sys.items.find(
+              (it) => it.id === `barline-${mDef.id}` || it.id === `barline-${mDef.id}-thin`
+            );
+            if (barline && barline.x >= clickRelX) {
+              onSelectMeasure(mDef.id, 0);
+              return;
+            }
+          }
+        }
       }
     }
 
     onSelectEvent(null);
   };
+
+  const totalWidthPx = Math.ceil(layout.width * staffSpacePx);
+  const totalHeightPx = Math.ceil(layout.height * staffSpacePx);
 
   return (
     <div
@@ -221,14 +187,41 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
 
       <div
         style={{
+          position: 'relative',
           backgroundColor: '#ffffff',
           padding: '2.5rem 3rem',
           borderRadius: '12px',
           boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)',
           maxWidth: '100%',
         }}
-        dangerouslySetInnerHTML={{ __html: svgHtml }}
-      />
+      >
+        <div dangerouslySetInnerHTML={{ __html: rawSvgHtml }} />
+
+        {/* Lightweight SVG Overlay for input cursor: zero layout thrash */}
+        {isInputMode && cursorPos && (
+          <svg
+            style={{
+              position: 'absolute',
+              top: '2.5rem',
+              left: '3rem',
+              width: `${totalWidthPx}px`,
+              height: `${totalHeightPx}px`,
+              pointerEvents: 'none',
+              overflow: 'visible',
+            }}
+          >
+            <line
+              x1={cursorPos.x * staffSpacePx}
+              y1={cursorPos.y1 * staffSpacePx}
+              x2={cursorPos.x * staffSpacePx}
+              y2={cursorPos.y2 * staffSpacePx}
+              stroke="#2563eb"
+              strokeWidth={2}
+              className="score-input-cursor"
+            />
+          </svg>
+        )}
+      </div>
     </div>
   );
 };

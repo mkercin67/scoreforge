@@ -130,6 +130,7 @@ export function createMeasure(
 
 /** Options for creating a note event. */
 export interface CreateNoteOptions {
+  id?: Id;
   pitches: Pitch[];
   baseType?: BaseDurationType;
   dots?: number;
@@ -152,7 +153,7 @@ export function createNote(options: CreateNoteOptions): NoteEvent {
 
   return {
     kind: 'note',
-    id: newId(),
+    id: options.id ?? newId(),
     baseType,
     dots,
     tuplet: options.tuplet ? { ...options.tuplet } : undefined,
@@ -166,6 +167,7 @@ export function createNote(options: CreateNoteOptions): NoteEvent {
 
 /** Options for creating a rest event. */
 export interface CreateRestOptions {
+  id?: Id;
   baseType?: BaseDurationType;
   dots?: number;
   tuplet?: { actual: number; normal: number };
@@ -190,7 +192,7 @@ export function createRest(options?: CreateRestOptions): RestEvent {
 
   return {
     kind: 'rest',
-    id: newId(),
+    id: options?.id ?? newId(),
     baseType,
     dots,
     tuplet: options?.tuplet ? { ...options.tuplet } : undefined,
