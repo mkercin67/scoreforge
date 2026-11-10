@@ -2,19 +2,20 @@
 
 exports[`renderSvg > renderSvgToString snapshot of the demo score 1`] = `
 "<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 360" width="820px" height="360px" style="color: currentColor; overflow: visible; user-select: none;">
-  <style>
-    @font-face {
-      font-family: 'Bravura';
-      src: url('/fonts/Bravura.woff2') format('woff2');
-      font-weight: normal;
-      font-style: normal;
-    }
-    .scoreforge-glyph {
-      font-family: 'Bravura';
-      dominant-baseline: alphabetic;
-      text-anchor: start;
-    }
-  </style>
+  <defs>
+    <path id="glyph-accidentalNatural" d="M141-181C139-181 138-180 137-180C137-180 73-157 47-157C41-157 37-158 37-162L37-329C37-336 31-341 25-341L12-341C5-341 0-336 0-329L0 186C0 192 3 195 8 195C9 195 11 194 12 194C12 194 14 194 15 193C29 187 85 163 114 163C124 163 131 166 131 174L131 323C131 330 136 335 143 335L156 335C162 335 168 330 168 323L168-179C168-184 164-187 160-187C159-187 157-187 156-186M37-39C37-53 98-79 122-79C128-79 131-78 131-74L131 29C131 47 74 70 49 70C42 70 37 68 37 64" />
+    <path id="glyph-accidentalSharp" d="M237-118C244-121 249-129 249-135L249-206C249-211 246-214 242-214C240-214 239-214 237-213C237-213 217-205 212-204C205-204 198-209 198-217L198-339C198-345 192-350 184-350C174-350 168-345 168-339L168-209C167-199 164-186 155-180C143-173 109-159 92-155C83-155 80-167 80-175L80-295C80-301 73-306 66-306C56-306 50-301 50-295L50-160C50-146 44-136 38-133C32-130 12-122 12-122C5-120 0-112 0-106L0-35C0-29 3-26 8-26C9-26 11-27 12-27C12-27 27-33 34-37C35-37 36-38 37-38C44-38 50-28 50-20L50 79C50 90 45 99 39 102C33 104 12 113 12 113C5 115 0 123 0 129L0 200C0 206 3 209 8 209C9 209 11 208 12 208C12 208 26 202 35 199C36 198 37 198 38 198C45 198 50 209 50 214L50 337C50 343 56 348 63 348C73 348 80 343 80 337L80 198C80 185 85 178 90 176L151 151C152 151 154 150 155 150C163 150 168 162 168 168L168 293C168 299 174 304 181 304C192 304 198 299 198 293L198 151C198 143 202 131 209 128C216 125 237 117 237 117C244 114 249 106 249 100L249 29C249 24 246 21 242 21C240 21 239 21 237 22L211 32C205 32 198 26 198 14L198-79C198-86 203-105 211-108M168 45C162 65 115 85 92 85C86 85 81 83 80 80C78 76 77 54 77 30C77-1 78-36 80-44C82-61 128-82 153-82C160-82 166-80 168-76C170-71 172-46 172-19C172 8 170 36 168 45" />
+    <path id="glyph-augmentationDot" d="M100 0C100-28 78-50 50-50C22-50 0-28 0 0C0 28 22 50 50 50C78 50 100 28 100 0" />
+    <path id="glyph-flag8thDown" d="M240-760C254-718 261-668 261-623C261-564 236-480 221-446C184-362 134-281 0-236L0-1C0 9 8 14 16 14C25 14 38 8 40-8C57-103 131-190 182-269C245-368 306-487 306-612C306-690 286-761 278-793C275-804 269-808 262-808C250-808 237-796 237-777C237-772 238-766 240-760" />
+    <path id="glyph-flag8thUp" d="M238 790C238 790 264 695 264 617C264 492 212 374 149 274C98 195 56 109 40 13C37-3 29-9 19-9C8-9 0-6 0 6L0 245C66 257 161 393 197 478C212 512 221 569 221 628C221 673 214 720 197 765C195 771 194 776 194 780C194 796 204 805 210 809C211 810 213 810 215 810C222 810 234 804 238 790" />
+    <path id="glyph-gClef" d="M376-415C374-427 376-428 382-434C398-449 419-470 438-491C522-583 572-702 572-815C572-902 548-988 507-1048C492-1070 466-1098 455-1098C441-1098 410-1072 390-1050C316-968 292-843 292-739C292-681 299-616 306-575C308-563 309-561 297-551C233-498 164-437 112-373C43-287 0-194 0-87C0 87 119 252 364 252C387 252 413 250 433 246C444 244 446 243 448 255C460 322 475 409 475 456C475 604 375 622 316 622C262 622 236 606 236 593C236 586 245 583 268 576C299 567 335 540 335 482C335 427 300 380 239 380C172 380 132 433 132 495C132 560 171 658 322 658C389 658 519 628 519 458C519 401 501 306 490 244C488 232 489 233 503 227C604 187 671 102 671-11C671-139 577-252 430-252C404-252 404-252 401-270M470-943C503-943 530-916 530-861C530-792 497-728 419-650C403-634 379-611 356-591C349-585 345-586 343-599C339-625 337-659 337-691C337-847 409-943 470-943M361-262C364-243 364-244 346-238C258-208 201-129 201-44C201 46 248 110 316 133C324 136 336 139 343 139C351 139 355 134 355 128C355 121 347 118 340 115C298 97 268 54 268 8C268-49 307-92 368-109C384-113 386-112 388-101L438 197C440 208 439 208 424 211C408 214 388 216 368 216C193 216 80 119 80-20C80-79 90-158 173-252C233-319 279-356 326-394C336-402 338-401 340-390M430-103C428-115 429-118 441-117C522-110 589-42 589 46C589 109 551 160 495 188C483 194 481 194 479 182" />
+    <path id="glyph-noteheadBlack" d="M97 125C186 125 295 43 295-42C295-93 255-125 198-125C88-125 0-44 0 42C0 94 43 125 97 125" />
+    <path id="glyph-rest16th" d="M208-111C208-149 178-179 140-179C103-179 72-149 72-111C72-91 84-72 100-60C108-54 118-49 128-46C135-44 143-43 152-43C166-43 182-46 194-50C208-54 217-58 230-65C233-66 235-67 237-67C240-67 242-65 242-60C242-57 241-52 239-45C237-37 193 101 184 120C176 139 149 151 135 151C136 147 136 144 136 141C136 103 105 73 68 73C30 73 0 103 0 141C0 161 12 180 28 192C36 198 45 203 55 206C63 208 71 209 80 209C94 209 110 206 122 202C136 198 142 195 155 188C157 188 159 190 159 193C159 194 158 195 158 196L63 479C63 480 62 481 62 482C62 490 71 500 93 500C122 500 127 488 131 477L247 96C273 11 292-56 292-56C292-56 317-144 319-157C319-159 320-160 320-161C320-167 312-171 310-172C305-172 302-170 299-168C292-162 242-102 208-101" />
+    <path id="glyph-rest8th" d="M134-107C134-144 104-174 67-174C30-174 0-144 0-107C0-86 12-68 27-56C36-50 45-45 55-43C63-41 72-39 81-39C95-39 109-42 120-46C134-50 143-54 156-61C158-62 160-62 161-62C165-62 166-58 166-53C166-50 166-46 165-42C162-27 90 172 72 238C72 250 95 251 101 251C112 251 126 249 136 241C139 239 237-112 237-112C241-130 246-146 247-151C247-161 237-166 235-167C233-167 230-167 224-163C217-157 167-97 134-97" />
+    <path id="glyph-restHalf" d="M282-24L282-116C282-131 270-142 256-142L26-142C11-142 0-131 0-116L0-24C0-10 11 2 26 2L256 2C270 2 282-10 282-24" />
+    <path id="glyph-restQuarter" d="M78 38C94 58 108 77 121 98C123 102 127 110 127 112C127 113 127 115 126 116C124 120 120 121 115 121C111 121 103 119 99 118C94 118 88 115 83 115C40 115 1 158 1 211C1 261 44 310 117 366C125 372 135 375 143 375C150 375 157 373 158 369C159 366 160 364 160 362C160 353 152 345 144 338C131 338 120 311 118 302C115 294 114 285 114 276C114 245 129 210 161 204C166 203 171 203 177 203C206 203 239 214 255 220C256 220 257 221 258 221C261 222 263 222 265 222C268 222 270 221 270 218C270 206 244 173 233 161C195 115 164 78 164 22C164 18 165 13 165 9C169-49 205-97 231-138C234-143 235-148 235-153C235-163 231-172 231-172C231-172 83-348 66-365C61-370 54-373 48-373C38-373 28-366 28-352C28-347 29-342 32-336C36-325 93-274 93-202C93-165 78-122 33-75C23-65 19-54 19-46C19-32 29-22 29-22" />
+    <path id="glyph-timeSig4" d="M362 74L362-140C362-148 361-157 350-157C341-157 336-155 330-148L235-33C231-28 226-22 226-10L226 74L91 74C171 6 331-221 334-232C334-234 335-235 335-237C335-245 328-251 320-251C311-251 270-249 252-249C234-249 189-251 181-251C172-251 158-248 158-232C158-108 60 31 30 73L24 81C24 82 23 83 23 84C21 88 20 92 20 95C20 105 28 112 40 112L226 112L226 175C226 202 204 210 186 210C170 210 163 219 163 229C163 239 167 250 182 250L395 250C405 250 415 243 415 229C415 215 403 209 393 209C383 209 362 203 362 171L362 112L435 112C445 112 450 105 450 93C450 81 446 74 435 74" />
+  </defs>
   <g data-system-index="0">
     <line data-id="sys-0-staffline-4" x1="0" y1="80" x2="820" y2="80" stroke="currentColor" stroke-width="1.3" stroke-linecap="butt" />
     <line data-id="sys-0-staffline-3" x1="0" y1="70" x2="820" y2="70" stroke="currentColor" stroke-width="1.3" stroke-linecap="butt" />
@@ -22,37 +23,37 @@ exports[`renderSvg > renderSvgToString snapshot of the demo score 1`] = `
     <line data-id="sys-0-staffline-1" x1="0" y1="50" x2="820" y2="50" stroke="currentColor" stroke-width="1.3" stroke-linecap="butt" />
     <line data-id="sys-0-staffline-0" x1="0" y1="40" x2="820" y2="40" stroke="currentColor" stroke-width="1.3" stroke-linecap="butt" />
     <line data-id="sys-0-sys-start-barline" x1="0" y1="40" x2="0" y2="80" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
-    <text data-id="sys-0-clef-0.4" x="4" y="70" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="sys-0-keysig-0" x="31.999999999999996" y="40" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="timesig-num-0" x="46.99999999999999" y="50" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="timesig-den-0" x="46.99999999999999" y="70" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="78.3463098134631" y="70" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="sys-0-clef-0.4" href="#glyph-gClef" transform="translate(4, 70) scale(0.04)" fill="currentColor" />
+    <use data-id="sys-0-keysig-0" href="#glyph-accidentalSharp" transform="translate(31.999999999999996, 40) scale(0.04)" fill="currentColor" />
+    <use data-id="timesig-num-0" href="#glyph-timeSig4" transform="translate(46.99999999999999, 50) scale(0.04)" fill="currentColor" />
+    <use data-id="timesig-den-0" href="#glyph-timeSig4" transform="translate(46.99999999999999, 70) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(78.3463098134631, 70) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="90.6758583400919" y1="68.32" x2="90.6758583400919" y2="35" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="135.81454447147877" y="65" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(135.81454447147877, 65) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="148.14409299810757" y1="63.32" x2="148.14409299810757" y2="30" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="193.28277912949446" y="60" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(193.28277912949446, 60) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="193.28277912949446" y1="61.68" x2="193.28277912949446" y2="95" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="250.75101378751012" y="55" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(250.75101378751012, 55) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="250.75101378751012" y1="56.68" x2="250.75101378751012" y2="90" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
     <line data-id="barline-STATIC-ID" x1="306.1294944579616" y1="40" x2="306.1294944579616" y2="80" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="316.1603135982698" y="50" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID-dot-0-0" data-event-id="STATIC-ID" x="331.62449310624487" y="45" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(316.1603135982698, 50) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID-dot-0-0" data-event-id="STATIC-ID" href="#glyph-augmentationDot" transform="translate(331.62449310624487, 45) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="316.1603135982698" y1="51.68" x2="316.1603135982698" y2="85" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="384.0773181941065" y="55" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(384.0773181941065, 55) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="384.0773181941065" y1="56.68" x2="384.0773181941065" y2="90" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID-flag" data-event-id="STATIC-ID" x="384.0773181941065" y="90" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="431.0967829143011" y="60" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID-dot-0-0" data-event-id="STATIC-ID" x="446.56096242227625" y="55" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID-flag" data-event-id="STATIC-ID" href="#glyph-flag8thDown" transform="translate(384.0773181941065, 90) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(431.0967829143011, 60) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID-dot-0-0" data-event-id="STATIC-ID" href="#glyph-augmentationDot" transform="translate(446.56096242227625, 55) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="431.0967829143011" y1="61.68" x2="431.0967829143011" y2="95" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="499.01378751013783" y="65" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(499.01378751013783, 65) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="511.3433360367667" y1="63.32" x2="511.3433360367667" y2="30" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID-flag" data-event-id="STATIC-ID" x="511.3433360367667" y="30" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID-flag" data-event-id="STATIC-ID" href="#glyph-flag8thUp" transform="translate(511.3433360367667, 30) scale(0.04)" fill="currentColor" />
     <line data-id="barline-STATIC-ID" x1="543.9434982427683" y1="40" x2="543.9434982427683" y2="80" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="553.9743173830765" y="60" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="632.3400919167342" y="60" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="689.8083265747499" y="60" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="736.8277912949445" y="60" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="778.6228710462286" y="60" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-restHalf" transform="translate(553.9743173830765, 60) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-restQuarter" transform="translate(632.3400919167342, 60) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-rest8th" transform="translate(689.8083265747499, 60) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-rest16th" transform="translate(736.8277912949445, 60) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-rest16th" transform="translate(778.6228710462286, 60) scale(0.04)" fill="currentColor" />
     <line data-id="barline-STATIC-ID" x1="818.4000000000001" y1="40" x2="818.4000000000001" y2="80" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
     <rect class="event-hit-area" data-event-id="STATIC-ID" x="73.3463098134631" y="30" width="22.329548526628813" height="50" fill="transparent" pointer-events="all" style="cursor: pointer;" />
     <rect class="event-hit-area" data-event-id="STATIC-ID" x="130.81454447147877" y="25" width="22.329548526628802" height="50" fill="transparent" pointer-events="all" style="cursor: pointer;" />
@@ -75,31 +76,31 @@ exports[`renderSvg > renderSvgToString snapshot of the demo score 1`] = `
     <line data-id="sys-1-staffline-1" x1="0" y1="190" x2="509.6" y2="190" stroke="currentColor" stroke-width="1.3" stroke-linecap="butt" />
     <line data-id="sys-1-staffline-0" x1="0" y1="180" x2="509.6" y2="180" stroke="currentColor" stroke-width="1.3" stroke-linecap="butt" />
     <line data-id="sys-1-sys-start-barline" x1="0" y1="180" x2="0" y2="220" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
-    <text data-id="sys-1-clef-0.4" x="4" y="210" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="sys-1-keysig-0" x="31.999999999999996" y="180" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="54.99999999999999" y="215" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID-pitch-1" data-event-id="STATIC-ID" x="66.8" y="210" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="sys-1-clef-0.4" href="#glyph-gClef" transform="translate(4, 210) scale(0.04)" fill="currentColor" />
+    <use data-id="sys-1-keysig-0" href="#glyph-accidentalSharp" transform="translate(31.999999999999996, 180) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(54.99999999999999, 215) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID-pitch-1" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(66.8, 210) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="66.8" y1="213.32" x2="66.8" y2="175" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID-acc-0" data-event-id="STATIC-ID" x="97.99999999999999" y="215" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="110" y="215" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID-acc-0" data-event-id="STATIC-ID" href="#glyph-accidentalNatural" transform="translate(97.99999999999999, 215) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(110, 215) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="121.8" y1="213.32" x2="121.8" y2="180" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID-acc-0" data-event-id="STATIC-ID" x="153" y="215" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="165" y="215" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID-acc-0" data-event-id="STATIC-ID" href="#glyph-accidentalSharp" transform="translate(153, 215) scale(0.04)" fill="currentColor" />
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(165, 215) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="176.8" y1="213.32" x2="176.8" y2="180" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="220" y="210" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(220, 210) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="231.8" y1="208.32" x2="231.8" y2="175" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
     <line data-id="barline-STATIC-ID" x1="273" y1="180" x2="273" y2="220" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="282.6" y="230" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(282.6, 230) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-ledger-0-5" data-event-id="STATIC-ID" x1="278.6" y1="230" x2="298.4" y2="230" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="294.40000000000003" y1="228.32" x2="294.40000000000003" y2="195" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="337.59999999999997" y="240" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(337.59999999999997, 240) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-ledger-0-5" data-event-id="STATIC-ID" x1="333.6" y1="230" x2="353.4" y2="230" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
     <line data-id="STATIC-ID-ledger-0-6" data-event-id="STATIC-ID" x1="333.6" y1="240" x2="353.4" y2="240" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="349.4" y1="238.32" x2="349.4" y2="205" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="392.6" y="170" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(392.6, 170) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-ledger-0--1" data-event-id="STATIC-ID" x1="388.6000000000001" y1="170" x2="408.40000000000003" y2="170" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="392.6" y1="171.68" x2="392.6" y2="205" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />
-    <text data-id="STATIC-ID" data-event-id="STATIC-ID" x="447.6" y="160" class="scoreforge-glyph" font-size="40px" fill="currentColor"></text>
+    <use data-id="STATIC-ID" data-event-id="STATIC-ID" href="#glyph-noteheadBlack" transform="translate(447.6, 160) scale(0.04)" fill="currentColor" />
     <line data-id="STATIC-ID-ledger-0--1" data-event-id="STATIC-ID" x1="443.6000000000001" y1="170" x2="463.40000000000003" y2="170" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
     <line data-id="STATIC-ID-ledger-0--2" data-event-id="STATIC-ID" x1="443.6000000000001" y1="160" x2="463.40000000000003" y2="160" stroke="currentColor" stroke-width="1.6" stroke-linecap="butt" />
     <line data-id="STATIC-ID-stem" data-event-id="STATIC-ID" x1="447.6" y1="161.68" x2="447.6" y2="195" stroke="currentColor" stroke-width="1.2" stroke-linecap="butt" />

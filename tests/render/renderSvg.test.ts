@@ -23,8 +23,14 @@ describe('renderSvg', () => {
     expect(svgStr).toContain('<svg');
     expect(svgStr).toContain(`data-id="${note.id}"`);
     expect(svgStr).toContain('data-id="sys-0-staffline-0"');
-    expect(svgStr).toContain('class="scoreforge-glyph"');
+    expect(svgStr).toContain('href="#glyph-');
+    expect(svgStr).not.toContain('<text');
     expect(svgStr).toContain('</svg>');
+
+    // A/B test query flag ?text fallback mode
+    const svgTextStr = renderSvgToString(layout, { useTextFallback: true });
+    expect(svgTextStr).toContain('class="scoreforge-glyph"');
+    expect(svgTextStr).toContain('<text');
   });
 
   it('renders stems for chord and notes in wrapped systems', () => {
@@ -94,6 +100,7 @@ describe('renderSvg', () => {
     const score = buildSampleScore('G');
     const layout = layoutScore(score, { width: 82 });
     const svgStr = renderSvgToString(layout, { staffSpacePx: 10 });
+    expect(svgStr).not.toContain('<text');
 
     // Normalize random UUIDs so snapshot is completely deterministic
     const normalized = svgStr.replace(

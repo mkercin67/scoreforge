@@ -4,21 +4,26 @@
  * Performance optimizations:
  * 1. Combines 5 staff lines into a single <path> element (saving 4 elements per system).
  * 2. Replaces individual event hit rects with ONE transparent rect per measure (saving ~75% rect elements).
- * 3. Skips DOM reconciliation for unchanged systems via React.memo.
+ * 3. Renders glyphs as <use href="#glyph-NAME"> vector paths by default (zero font layout overhead).
+ * 4. Supports ?text / useTextFallback: true for A/B testing with <text> elements.
+ * 5. Skips DOM reconciliation for unchanged systems via React.memo.
  */
 
 import React, { useMemo } from 'react';
 import { LayoutItem, LayoutSystem } from '../layout/types';
 import { getGlyphChar } from '../render/smufl';
+import { UNITS_PER_EM } from '../render/glyphPaths.generated';
 
 export interface SystemViewProps {
   system: LayoutSystem;
   staffSpacePx: number;
+  useTextFallback?: boolean;
 }
 
 export const SystemView: React.FC<SystemViewProps> = React.memo(
-  ({ system, staffSpacePx }) => {
+  ({ system, staffSpacePx, useTextFallback = false }) => {
     const fontSize = staffSpacePx * 4;
+    const scale = staffSpacePx / (UNITS_PER_EM / 4);
 
     // Separate staff lines from other lines so they can be merged into 1 path
     const { staffLines, otherItems } = useMemo(() => {
@@ -107,26 +112,39 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
           }
 
           if (item.kind === 'glyph' && item.glyph) {
+            if (useTextFallback) {
+              return (
+                <text
+                  key={item.id}
+                  data-id={item.id}
+                  data-event-id={item.eventId}
+                  x={pxX}
+                  y={pxY}
+                  className="scoreforge-glyph notranslate"
+                  style={{
+                    fontFamily: 'Bravura, serif',
+                    dominantBaseline: 'alphabetic',
+                    textAnchor: 'start',
+                  }}
+                  dominantBaseline="alphabetic"
+                  textAnchor="start"
+                  fontSize={`${fontSize}px`}
+                  fill="currentColor"
+                >
+                  {getGlyphChar(item.glyph)}
+                </text>
+              );
+            }
+
             return (
-              <text
+              <use
                 key={item.id}
                 data-id={item.id}
                 data-event-id={item.eventId}
-                x={pxX}
-                y={pxY}
-                className="scoreforge-glyph notranslate"
-                style={{
-                  fontFamily: 'Bravura, serif',
-                  dominantBaseline: 'alphabetic',
-                  textAnchor: 'start',
-                }}
-                dominantBaseline="alphabetic"
-                textAnchor="start"
-                fontSize={`${fontSize}px`}
+                href={`#glyph-${item.glyph}`}
+                transform={`translate(${pxX}, ${pxY}) scale(${scale})`}
                 fill="currentColor"
-              >
-                {getGlyphChar(item.glyph)}
-              </text>
+              />
             );
           }
 
@@ -155,6 +173,7 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
   },
   (prev, next) => {
     if (prev.staffSpacePx !== next.staffSpacePx) return false;
+    if (prev.useTextFallback !== next.useTextFallback) return false;
     if (prev.system === next.system) return true;
     if (prev.system.y !== next.system.y || prev.system.width !== next.system.width) return false;
     if (prev.system.items.length !== next.system.items.length) return false;

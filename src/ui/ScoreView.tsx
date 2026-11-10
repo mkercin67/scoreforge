@@ -6,8 +6,11 @@
  *
  * Performance guards:
  * - notranslate and translate="no" to prevent browser translation extension mutations.
- * - Read-first, write-later RAF-debounced cursor scrolling (no forced reflow on keydown).
- * - Combined staff line rendering and measure-based hit rects to minimize DOM footprint.
+ * - ZERO forced layout on keydown: cursor visibility computed mathematically from layout data
+ *   and container.scrollTop/clientHeight (no getBoundingClientRect, no scrollIntoView).
+ * - Vector SVG <path> glyph rendering via <defs> and <use> (zero text layout overhead).
+ * - Query flag ?text enables A/B testing with the old <text>-based rendering.
+ * - Containment: contain: 'layout paint' isolates the score canvas from the outer DOM.
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -17,6 +20,7 @@ import { computeCursorPosition } from '../layout/cursor';
 import { layoutScore } from '../layout/layoutScore';
 import { useI18n } from './i18n';
 import { SystemView } from './SystemView';
+import { getGlyphPath } from '../render/glyphPaths.generated';
 
 export interface ScoreViewProps {
   score: Score;
@@ -38,6 +42,12 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
   const { zoom } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidthPx, setContainerWidthPx] = useState<number>(1000);
+
+  // A/B test query flag: ?text restores old <text> rendering
+  const useTextFallback = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).has('text');
+  }, []);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -71,6 +81,20 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
     return res;
   }, [score, availableStaffSpaces]);
 
+  // Distinct glyph names used in this score for <defs>
+  const usedGlyphs = useMemo(() => {
+    if (useTextFallback) return [];
+    const set = new Set<string>();
+    for (const sys of layout.systems) {
+      for (const it of sys.items) {
+        if (!it.hidden && it.kind === 'glyph' && it.glyph) {
+          set.add(it.glyph);
+        }
+      }
+    }
+    return Array.from(set).sort();
+  }, [layout, useTextFallback]);
+
   // Compute cursor position as an overlay (does NOT recompute layoutScore)
   const cursorPos = useMemo(() => {
     if (!cursor) return null;
@@ -79,34 +103,36 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
 
   const cursorLineRef = useRef<SVGLineElement | null>(null);
 
-  // Keep cursor visible: read-first, write-later, run at most once per note via RAF,
-  // calling scrollIntoView ONLY if the cursor is actually outside the viewport.
+  // Keep cursor visible: ZERO getBoundingClientRect, ZERO forced layout.
+  // Computes cursor position purely from layout coordinates and container.scrollTop/clientHeight.
   useEffect(() => {
     if (!isInputMode || !cursorPos) return;
 
     const rafId = requestAnimationFrame(() => {
-      const cursorEl = cursorLineRef.current;
       const containerEl = containerRef.current;
-      if (!cursorEl || !containerEl) return;
+      if (!containerEl) return;
 
-      // Read phase (measured after paint, zero forced layout in keydown frame)
-      const containerRect = containerEl.getBoundingClientRect();
-      const cursorRect = cursorEl.getBoundingClientRect();
+      // Container padding is 2rem (32px), inner card padding is 2.5rem (40px) = 72px total top offset
+      const topOffset = 72;
+      const cursorTop = topOffset + cursorPos.y1 * staffSpacePx;
+      const cursorBottom = topOffset + cursorPos.y2 * staffSpacePx;
 
-      const isOutside =
-        cursorRect.top < containerRect.top + 10 ||
-        cursorRect.bottom > containerRect.bottom - 10 ||
-        cursorRect.left < containerRect.left + 10 ||
-        cursorRect.right > containerRect.right - 10;
+      const scrollTop = containerEl.scrollTop;
+      const clientHeight = containerEl.clientHeight;
 
-      // Write phase: only execute scroll if actually outside
-      if (isOutside) {
-        cursorEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const margin = 20;
+      const isAbove = cursorTop < scrollTop + margin;
+      const isBelow = cursorBottom > scrollTop + clientHeight - margin;
+
+      if (isAbove) {
+        containerEl.scrollTop = Math.max(0, cursorTop - margin * 2);
+      } else if (isBelow) {
+        containerEl.scrollTop = cursorBottom - clientHeight + margin * 2;
       }
     });
 
     return () => cancelAnimationFrame(rafId);
-  }, [isInputMode, cursorPos?.systemIndex, cursorPos?.x, cursorPos?.y1]);
+  }, [isInputMode, cursorPos?.systemIndex, cursorPos?.x, cursorPos?.y1, staffSpacePx]);
 
   const syncCursorToEvent = (eventId: string) => {
     if (!onSelectMeasure) return;
@@ -277,6 +303,8 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
           borderRadius: '12px',
           boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)',
           maxWidth: '100%',
+          contain: 'layout paint',
+          willChange: 'auto',
         }}
       >
         <svg
@@ -286,8 +314,24 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
           height={`${totalHeightPx}px`}
           style={{ color: '#000000', overflow: 'visible', userSelect: 'none', display: 'block' }}
         >
+          {/* Vector path definitions for used SMuFL glyphs */}
+          {!useTextFallback && (
+            <defs>
+              {usedGlyphs.map((glyphName) => {
+                const pathD = getGlyphPath(glyphName);
+                if (!pathD) return null;
+                return <path key={glyphName} id={`glyph-${glyphName}`} d={pathD} />;
+              })}
+            </defs>
+          )}
+
           {layout.systems.map((sys) => (
-            <SystemView key={sys.index} system={sys} staffSpacePx={staffSpacePx} />
+            <SystemView
+              key={sys.index}
+              system={sys}
+              staffSpacePx={staffSpacePx}
+              useTextFallback={useTextFallback}
+            />
           ))}
 
           {/* Persistent cursor overlay inside the SVG: zero layout thrash */}

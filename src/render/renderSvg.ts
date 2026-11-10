@@ -1,18 +1,25 @@
 /**
  * SVG Renderer for ScoreForge layout structures.
  *
- * Renders LayoutResult into SVG elements using the Bravura SMuFL font.
- * Attaches data-id attributes to every visual element for hit-testing.
+ * Performance optimized:
+ * 1. By default, renders SMuFL musical glyphs as vector SVG <path> elements inside <defs>
+ *    and references them via <use>, eliminating browser font layout, PUA codepoint styling
+ *    and forced reflow issues.
+ * 2. Supports ?text / useTextFallback: true for A/B testing with traditional <text> rendering.
+ * 3. Attaches data-id and data-event-id attributes to every visual element for hit-testing.
  */
 
 import { LayoutItem, LayoutResult, LayoutSystem } from '../layout/types';
 import { getGlyphChar } from './smufl';
+import { getGlyphPath, UNITS_PER_EM } from './glyphPaths.generated';
 
 export interface RenderSvgOptions {
   /** Number of screen pixels per staff space. Defaults to 10. */
   staffSpacePx?: number;
   /** Foreground fill/stroke color. Defaults to 'currentColor'. */
   color?: string;
+  /** When true, renders glyphs as <text> using Bravura font instead of SVG paths. Defaults to false. */
+  useTextFallback?: boolean;
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -30,6 +37,7 @@ export function renderSvg(
 ): SVGSVGElement {
   const staffSpacePx = options.staffSpacePx ?? 10;
   const color = options.color ?? 'currentColor';
+  const useTextFallback = options.useTextFallback ?? false;
 
   const totalWidthPx = Math.ceil(layout.width * staffSpacePx);
   const totalHeightPx = Math.ceil(layout.height * staffSpacePx);
@@ -45,28 +53,52 @@ export function renderSvg(
   svg.setAttribute('height', `${totalHeightPx}px`);
   svg.setAttribute('style', `color: ${color}; overflow: visible; user-select: none;`);
 
-  // Embedded @font-face style so the SVG is self-contained
-  const styleEl = document.createElementNS(SVG_NS, 'style');
-  styleEl.textContent = `
-    @font-face {
-      font-family: 'Bravura';
-      src: url('/fonts/Bravura.woff2') format('woff2');
-      font-weight: normal;
-      font-style: normal;
+  if (useTextFallback) {
+    const styleEl = document.createElementNS(SVG_NS, 'style');
+    styleEl.textContent = `
+      @font-face {
+        font-family: 'Bravura';
+        src: url('/fonts/Bravura.woff2') format('woff2');
+        font-weight: normal;
+        font-style: normal;
+      }
+      .scoreforge-glyph {
+        font-family: 'Bravura';
+        dominant-baseline: alphabetic;
+        text-anchor: start;
+      }
+      .event-hit-area {
+        fill: transparent;
+        stroke: none;
+      }
+    `;
+    svg.appendChild(styleEl);
+  } else {
+    // Collect used glyphs and build <defs>
+    const usedGlyphs = new Set<string>();
+    for (const sys of layout.systems) {
+      for (const it of sys.items) {
+        if (!it.hidden && it.kind === 'glyph' && it.glyph) {
+          usedGlyphs.add(it.glyph);
+        }
+      }
     }
-    .scoreforge-glyph {
-      font-family: 'Bravura';
-      dominant-baseline: alphabetic;
-      text-anchor: start;
+
+    const defs = document.createElementNS(SVG_NS, 'defs');
+    for (const glyphName of Array.from(usedGlyphs).sort()) {
+      const pathD = getGlyphPath(glyphName);
+      if (pathD) {
+        const pathEl = document.createElementNS(SVG_NS, 'path');
+        pathEl.setAttribute('id', `glyph-${glyphName}`);
+        pathEl.setAttribute('d', pathD);
+        defs.appendChild(pathEl);
+      }
     }
-    .event-hit-area {
-      fill: transparent;
-      stroke: none;
-    }
-  `;
-  svg.appendChild(styleEl);
+    svg.appendChild(defs);
+  }
 
   const fontSize = staffSpacePx * 4;
+  const scale = staffSpacePx / (UNITS_PER_EM / 4);
 
   for (const sys of layout.systems) {
     const sysGroup = document.createElementNS(SVG_NS, 'g');
@@ -101,7 +133,7 @@ export function renderSvg(
         }
       }
 
-      const element = renderItemToSvgElement(item, sys, staffSpacePx, fontSize);
+      const element = renderItemToSvgElement(item, sys, staffSpacePx, fontSize, scale, useTextFallback);
       if (element) {
         sysGroup.appendChild(element);
       }
@@ -141,7 +173,9 @@ function renderItemToSvgElement(
   item: LayoutItem,
   sys: LayoutSystem,
   staffSpacePx: number,
-  fontSize: number
+  fontSize: number,
+  scale: number,
+  useTextFallback: boolean
 ): SVGElement | null {
   const pxX = item.x * staffSpacePx;
   const pxY = (sys.y + item.y) * staffSpacePx;
@@ -166,18 +200,30 @@ function renderItemToSvgElement(
   }
 
   if (item.kind === 'glyph' && item.glyph) {
-    const text = document.createElementNS(SVG_NS, 'text');
-    text.setAttribute('data-id', item.id);
-    if (item.eventId) {
-      text.setAttribute('data-event-id', item.eventId);
+    if (useTextFallback) {
+      const text = document.createElementNS(SVG_NS, 'text');
+      text.setAttribute('data-id', item.id);
+      if (item.eventId) {
+        text.setAttribute('data-event-id', item.eventId);
+      }
+      text.setAttribute('x', pxX.toString());
+      text.setAttribute('y', pxY.toString());
+      text.setAttribute('class', 'scoreforge-glyph');
+      text.setAttribute('font-size', `${fontSize}px`);
+      text.setAttribute('fill', 'currentColor');
+      text.textContent = getGlyphChar(item.glyph);
+      return text;
     }
-    text.setAttribute('x', pxX.toString());
-    text.setAttribute('y', pxY.toString());
-    text.setAttribute('class', 'scoreforge-glyph');
-    text.setAttribute('font-size', `${fontSize}px`);
-    text.setAttribute('fill', 'currentColor');
-    text.textContent = getGlyphChar(item.glyph);
-    return text;
+
+    const use = document.createElementNS(SVG_NS, 'use');
+    use.setAttribute('data-id', item.id);
+    if (item.eventId) {
+      use.setAttribute('data-event-id', item.eventId);
+    }
+    use.setAttribute('href', `#glyph-${item.glyph}`);
+    use.setAttribute('transform', `translate(${pxX}, ${pxY}) scale(${scale})`);
+    use.setAttribute('fill', 'currentColor');
+    return use;
   }
 
   if (item.kind === 'text' && item.text) {
@@ -201,7 +247,7 @@ function renderItemToSvgElement(
  * Works in both browser and plain Node environments without DOM.
  *
  * @param layout - Layout data to render.
- * @param options - Scaling and color options.
+ * @param options - Scaling, fallback and color options.
  * @returns SVG XML string.
  */
 export function renderSvgToString(
@@ -210,10 +256,32 @@ export function renderSvgToString(
 ): string {
   const staffSpacePx = options.staffSpacePx ?? 10;
   const color = options.color ?? 'currentColor';
+  const useTextFallback = options.useTextFallback ?? false;
 
   const totalWidthPx = Math.ceil(layout.width * staffSpacePx);
   const totalHeightPx = Math.ceil(layout.height * staffSpacePx);
   const fontSize = staffSpacePx * 4;
+  const scale = staffSpacePx / (UNITS_PER_EM / 4);
+
+  let defsXml = '';
+  if (!useTextFallback) {
+    const usedGlyphs = new Set<string>();
+    for (const sys of layout.systems) {
+      for (const it of sys.items) {
+        if (!it.hidden && it.kind === 'glyph' && it.glyph) {
+          usedGlyphs.add(it.glyph);
+        }
+      }
+    }
+    defsXml = '  <defs>\n';
+    for (const glyphName of Array.from(usedGlyphs).sort()) {
+      const pathD = getGlyphPath(glyphName);
+      if (pathD) {
+        defsXml += `    <path id="glyph-${glyphName}" d="${pathD}" />\n`;
+      }
+    }
+    defsXml += '  </defs>\n';
+  }
 
   let elementsXml = '';
 
@@ -257,8 +325,12 @@ export function renderSvgToString(
         const strokeWidth = (item.thickness ?? 0.13) * staffSpacePx;
         elementsXml += `    <line data-id="${item.id}"${eventAttr} x1="${pxX}" y1="${pxY}" x2="${pxX2}" y2="${pxY2}" stroke="currentColor" stroke-width="${strokeWidth}" stroke-linecap="butt" />\n`;
       } else if (item.kind === 'glyph' && item.glyph) {
-        const char = getGlyphChar(item.glyph);
-        elementsXml += `    <text data-id="${item.id}"${eventAttr} x="${pxX}" y="${pxY}" class="scoreforge-glyph" font-size="${fontSize}px" fill="currentColor">${char}</text>\n`;
+        if (useTextFallback) {
+          const char = getGlyphChar(item.glyph);
+          elementsXml += `    <text data-id="${item.id}"${eventAttr} x="${pxX}" y="${pxY}" class="scoreforge-glyph" font-size="${fontSize}px" fill="currentColor">${char}</text>\n`;
+        } else {
+          elementsXml += `    <use data-id="${item.id}"${eventAttr} href="#glyph-${item.glyph}" transform="translate(${pxX}, ${pxY}) scale(${scale})" fill="currentColor" />\n`;
+        }
       } else if (item.kind === 'text' && item.text) {
         elementsXml += `    <text data-id="${item.id}"${eventAttr} x="${pxX}" y="${pxY}" fill="currentColor">${item.text}</text>\n`;
       }
@@ -276,8 +348,8 @@ export function renderSvgToString(
     elementsXml += `  </g>\n`;
   }
 
-  return `<svg xmlns="${SVG_NS}" viewBox="0 0 ${totalWidthPx} ${totalHeightPx}" width="${totalWidthPx}px" height="${totalHeightPx}px" style="color: ${color}; overflow: visible; user-select: none;">
-  <style>
+  const textStyleBlock = useTextFallback
+    ? `  <style>
     @font-face {
       font-family: 'Bravura';
       src: url('/fonts/Bravura.woff2') format('woff2');
@@ -289,6 +361,9 @@ export function renderSvgToString(
       dominant-baseline: alphabetic;
       text-anchor: start;
     }
-  </style>
-${elementsXml}</svg>`;
+  </style>\n`
+    : '';
+
+  return `<svg xmlns="${SVG_NS}" viewBox="0 0 ${totalWidthPx} ${totalHeightPx}" width="${totalWidthPx}px" height="${totalHeightPx}px" style="color: ${color}; overflow: visible; user-select: none;">
+${textStyleBlock}${defsXml}${elementsXml}</svg>`;
 }
