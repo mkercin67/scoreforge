@@ -2,7 +2,12 @@
  * Interactive SVG score canvas container.
  *
  * Implements responsive re-layout via ResizeObserver, zoom scale support,
- * visual selection highlighting, high-performance cursor overlay, and click selection.
+ * visual selection highlighting, high-performance cursor overlay, and X-based click selection.
+ *
+ * Performance guards:
+ * - notranslate and translate="no" to prevent browser translation extension mutations.
+ * - Read-first, write-later RAF-debounced cursor scrolling (no forced reflow on keydown).
+ * - Combined staff line rendering and measure-based hit rects to minimize DOM footprint.
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -74,70 +79,126 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
 
   const cursorLineRef = useRef<SVGLineElement | null>(null);
 
-  // Keep cursor visible: when cursor moves to a system outside the viewport, scroll into view
+  // Keep cursor visible: read-first, write-later, run at most once per note via RAF,
+  // calling scrollIntoView ONLY if the cursor is actually outside the viewport.
   useEffect(() => {
-    if (isInputMode && cursorPos && cursorLineRef.current) {
-      cursorLineRef.current.scrollIntoView({ block: 'nearest' });
-    }
+    if (!isInputMode || !cursorPos) return;
+
+    const rafId = requestAnimationFrame(() => {
+      const cursorEl = cursorLineRef.current;
+      const containerEl = containerRef.current;
+      if (!cursorEl || !containerEl) return;
+
+      // Read phase (measured after paint, zero forced layout in keydown frame)
+      const containerRect = containerEl.getBoundingClientRect();
+      const cursorRect = cursorEl.getBoundingClientRect();
+
+      const isOutside =
+        cursorRect.top < containerRect.top + 10 ||
+        cursorRect.bottom > containerRect.bottom - 10 ||
+        cursorRect.left < containerRect.left + 10 ||
+        cursorRect.right > containerRect.right - 10;
+
+      // Write phase: only execute scroll if actually outside
+      if (isOutside) {
+        cursorEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    });
+
+    return () => cancelAnimationFrame(rafId);
   }, [isInputMode, cursorPos?.systemIndex, cursorPos?.x, cursorPos?.y1]);
+
+  const syncCursorToEvent = (eventId: string) => {
+    if (!onSelectMeasure) return;
+    for (let mIdx = 0; mIdx < score.measures.length; mIdx++) {
+      const mDef = score.measures[mIdx];
+      const staff = score.parts[0]?.staves[0];
+      const sm = staff?.measures[mDef.id];
+      const voice = sm?.voices[0];
+      if (!voice) continue;
+
+      let t = 0;
+      let found = false;
+      for (const ev of voice.events) {
+        if (ev.id === eventId) {
+          onSelectMeasure(mDef.id, t);
+          found = true;
+          break;
+        }
+        t += ev.duration;
+      }
+      if (found) break;
+    }
+  };
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as Element | null;
     if (!target) return;
 
+    // 1. Direct hit on an event glyph or stem
     const hitElement = target.closest('[data-event-id]');
     if (hitElement) {
       const eventId = hitElement.getAttribute('data-event-id');
       if (eventId) {
         onSelectEvent(eventId);
-
-        // Also place cursor at this event's measure
-        if (onSelectMeasure) {
-          for (let mIdx = 0; mIdx < score.measures.length; mIdx++) {
-            const mDef = score.measures[mIdx];
-            const staff = score.parts[0]?.staves[0];
-            const sm = staff?.measures[mDef.id];
-            const voice = sm?.voices[0];
-            if (!voice) continue;
-
-            let t = 0;
-            let found = false;
-            for (const ev of voice.events) {
-              if (ev.id === eventId) {
-                onSelectMeasure(mDef.id, t);
-                found = true;
-                break;
-              }
-              t += ev.duration;
-            }
-            if (found) break;
-          }
-        }
+        syncCursorToEvent(eventId);
         return;
       }
     }
 
-    // Check if clicked empty measure / system background
-    if (onSelectMeasure) {
-      const sysEl = target.closest('[data-system-index]');
-      if (sysEl) {
-        const sysIdx = parseInt(sysEl.getAttribute('data-system-index') ?? '0', 10);
-        const sys = layout.systems[sysIdx];
-        if (sys) {
-          // Find measure closest to click X
-          const rect = sysEl.getBoundingClientRect();
-          const clickRelX = (e.clientX - rect.left) / staffSpacePx;
+    // 2. Click on a measure hit area or system background (X-based hit testing)
+    const measureEl = target.closest('[data-measure-id]');
+    const sysEl = target.closest('[data-system-index]');
+    if (sysEl && onSelectMeasure) {
+      const sysIdx = parseInt(sysEl.getAttribute('data-system-index') ?? '0', 10);
+      const sys = layout.systems[sysIdx];
+      if (sys) {
+        const rect = sysEl.getBoundingClientRect();
+        const clickRelX = (e.clientX - rect.left) / staffSpacePx;
 
-          // Find measure barline ending after clickRelX
-          for (const mDef of score.measures) {
-            const barline = sys.items.find(
-              (it) => it.id === `barline-${mDef.id}` || it.id === `barline-${mDef.id}-thin`
-            );
-            if (barline && barline.x >= clickRelX) {
-              onSelectMeasure(mDef.id, 0);
+        const targetMeasureId =
+          measureEl?.getAttribute('data-measure-id') ??
+          (() => {
+            for (const mDef of score.measures) {
+              const barline = sys.items.find(
+                (it) => it.id === `barline-${mDef.id}` || it.id === `barline-${mDef.id}-thin`
+              );
+              if (barline && barline.x >= clickRelX) return mDef.id;
+            }
+            return null;
+          })();
+
+        if (targetMeasureId) {
+          // Check if any event in this measure is close to clickRelX (within 1.5 staff spaces)
+          const staff = score.parts[0]?.staves[0];
+          const sm = staff?.measures[targetMeasureId];
+          const voice = sm?.voices[0];
+          if (voice) {
+            let closestEvId: string | null = null;
+            let minDiff = 1.5; // Tolerance in staff spaces
+
+            for (const ev of voice.events) {
+              const evItems = sys.items.filter((it) => it.eventId === ev.id);
+              for (const it of evItems) {
+                const diff = Math.abs(it.x - clickRelX);
+                if (diff < minDiff) {
+                  minDiff = diff;
+                  closestEvId = ev.id;
+                }
+              }
+            }
+
+            if (closestEvId) {
+              onSelectEvent(closestEvId);
+              syncCursorToEvent(closestEvId);
               return;
             }
           }
+
+          // Otherwise, empty measure clicked -> place cursor at tick 0
+          onSelectMeasure(targetMeasureId, 0);
+          onSelectEvent(null);
+          return;
         }
       }
     }
@@ -152,6 +213,8 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
     <div
       ref={containerRef}
       onClick={handleClick}
+      className="notranslate"
+      translate="no"
       style={{
         flex: 1,
         overflow: 'auto',
@@ -180,19 +243,19 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
         /* Dynamic blue highlight for the selected event */
         ${
           selectedEventId
-            ? `svg [data-event-id="${selectedEventId}"]:not(.event-hit-area) {
+            ? `svg [data-event-id="${selectedEventId}"] {
                 fill: #2563eb !important;
                 stroke: #2563eb !important;
               }`
             : ''
         }
-        .event-hit-area {
+        .measure-hit-area {
           fill: transparent !important;
           stroke: none !important;
           cursor: pointer;
         }
-        .event-hit-area:hover {
-          fill: rgba(37, 99, 235, 0.08) !important;
+        .measure-hit-area:hover {
+          fill: rgba(37, 99, 235, 0.04) !important;
           stroke: none !important;
         }
         @keyframes cursor-blink {
@@ -205,6 +268,8 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
       `}</style>
 
       <div
+        className="notranslate"
+        translate="no"
         style={{
           position: 'relative',
           backgroundColor: '#ffffff',
@@ -215,6 +280,7 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
         }}
       >
         <svg
+          className="notranslate"
           viewBox={`0 0 ${totalWidthPx} ${totalHeightPx}`}
           width={`${totalWidthPx}px`}
           height={`${totalHeightPx}px`}
@@ -228,13 +294,13 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
           {isInputMode && cursorPos && (
             <line
               ref={cursorLineRef}
+              className="score-input-cursor notranslate"
               x1={cursorPos.x * staffSpacePx}
               y1={cursorPos.y1 * staffSpacePx}
               x2={cursorPos.x * staffSpacePx}
               y2={cursorPos.y2 * staffSpacePx}
               stroke="#2563eb"
               strokeWidth={2}
-              className="score-input-cursor"
             />
           )}
         </svg>

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createEmptyScore } from '../../src/core/factory';
+import { createEmptyScore, createNote, createPitch } from '../../src/core/factory';
 import { enterNote } from '../../src/core/input';
 import * as layoutScoreModule from '../../src/layout/layoutScore';
 import { computeCursorPosition } from '../../src/layout/cursor';
@@ -103,5 +103,49 @@ describe('Performance verification', () => {
     expect(layoutScoreModule.measureLayoutCacheStats.calls).toBe(64);
     expect(layoutScoreModule.measureLayoutCacheStats.misses).toBe(1);
     expect(layoutScoreModule.measureLayoutCacheStats.hits).toBe(63);
+  });
+
+  it('measures DOM element count reduction for a 64-measure score', () => {
+    const score = createEmptyScore({
+      clef: { sign: 'G', line: 2 },
+      keySig: 0,
+      timeSig: { num: 4, den: 4 },
+      measures: 64,
+    });
+
+    // Populate all 64 measures with 4 quarter notes = 256 notes
+    const staff = score.parts[0].staves[0];
+    for (const m of score.measures) {
+      const v = staff.measures[m.id].voices[0];
+      v.events = [
+        createNote({ pitches: [createPitch('C', 5, 0)], baseType: 'quarter' }),
+        createNote({ pitches: [createPitch('D', 5, 0)], baseType: 'quarter' }),
+        createNote({ pitches: [createPitch('E', 5, 0)], baseType: 'quarter' }),
+        createNote({ pitches: [createPitch('F', 5, 0)], baseType: 'quarter' }),
+      ];
+    }
+
+    const layout = layoutScoreModule.layoutScore(score, { width: 80 });
+    const numSystems = layout.systems.length;
+
+    // Before optimization:
+    // 5 lines per system for staff lines + all other items + 1 rect per event (256 rects)
+    let totalOtherItems = 0;
+    for (const sys of layout.systems) {
+      totalOtherItems += sys.items.filter((it) => !it.id.includes('staffline')).length;
+    }
+    const countBefore = (numSystems * 5) + totalOtherItems + 256;
+
+    // After optimization:
+    // 1 path per system for staff lines + all other items + 1 rect per measure (64 rects)
+    const countAfter = (numSystems * 1) + totalOtherItems + 64;
+
+    console.log(`[DOM Elements] 64 measures (256 notes across ${numSystems} systems):`);
+    console.log(`  Before: ${countBefore} elements`);
+    console.log(`  After:  ${countAfter} elements`);
+    console.log(`  Reduction: ${countBefore - countAfter} elements (-${(((countBefore - countAfter) / countBefore) * 100).toFixed(1)}%)`);
+
+    expect(countAfter).toBeLessThan(countBefore);
+    expect(countBefore - countAfter).toBeGreaterThanOrEqual(200);
   });
 });

@@ -8,6 +8,7 @@
 import React, { useEffect, useLayoutEffect, useState } from 'react';
 import { convertToRest, transposeEvent } from '../core/commands';
 import { createEmptyScore } from '../core/factory';
+import { Diagnostics, PerfSample } from './Diagnostics';
 import { I18nProvider, useI18n } from './i18n';
 import { mapKeyEvent } from './keymap';
 import { NewScoreConfig, NewScoreModal } from './NewScoreModal';
@@ -72,6 +73,8 @@ const EditorShell: React.FC = () => {
   } = useEditor();
 
   const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState<boolean>(false);
+  const [perfSamples, setPerfSamples] = useState<PerfSample[]>([]);
 
   const handleCreateNewScore = (config: NewScoreConfig) => {
     const t0 = performance.now();
@@ -268,7 +271,14 @@ const EditorShell: React.FC = () => {
   // Global physical keyboard event handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore only typing inside text / number inputs or textareas (e.g. modal form inputs)
+      // Toggle hidden diagnostics panel (Ctrl+Alt+D or Cmd+Alt+D)
+      if (e.ctrlKey && e.altKey && (e.code === 'KeyD' || e.key.toLowerCase() === 'd')) {
+        e.preventDefault();
+        setIsDiagnosticsOpen((prev) => !prev);
+        return;
+      }
+
+      // Ignore typing inside text / number inputs or textareas (e.g. modal form inputs)
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
@@ -288,13 +298,45 @@ const EditorShell: React.FC = () => {
 
       e.preventDefault();
 
+      const tInput = e.timeStamp;
+      const tHandlerStart = performance.now();
+
+      const recordSample = (key: string) => {
+        const tHandlerEnd = performance.now();
+        const inputDelay = Math.max(0, tHandlerStart - tInput);
+        const handlerDuration = Math.max(0, tHandlerEnd - tHandlerStart);
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const tPaint = performance.now();
+            const paintDuration = Math.max(0, tPaint - tHandlerEnd);
+            const totalDuration = Math.max(0, tPaint - tInput);
+            const sample: PerfSample = {
+              timestamp: Date.now(),
+              key,
+              inputDelay: Number(inputDelay.toFixed(2)),
+              handlerDuration: Number(handlerDuration.toFixed(2)),
+              paintDuration: Number(paintDuration.toFixed(2)),
+              totalDuration: Number(totalDuration.toFixed(2)),
+            };
+
+            if (!window.__perf) window.__perf = [];
+            window.__perf.push(sample.totalDuration);
+
+            setPerfSamples((prev) => [...prev.slice(-99), sample]);
+          });
+        });
+      };
+
       if (typeof action === 'string') {
         switch (action) {
           case 'undo':
             undo();
+            recordSample('Undo');
             break;
           case 'redo':
             redo();
+            recordSample('Redo');
             break;
           case 'toggle-note-input':
             toggleInputMode();
@@ -322,31 +364,36 @@ const EditorShell: React.FC = () => {
           case 'transpose-semitone-up':
             if (selectedEventId) {
               executeCommand(transposeEvent(selectedEventId, 1));
+              recordSample('ArrowUp');
             }
             break;
           case 'transpose-semitone-down':
             if (selectedEventId) {
               executeCommand(transposeEvent(selectedEventId, -1));
+              recordSample('ArrowDown');
             }
             break;
           case 'transpose-octave-up':
             if (selectedEventId) {
               executeCommand(transposeEvent(selectedEventId, 12));
+              recordSample('Ctrl+ArrowUp');
             }
             break;
           case 'transpose-octave-down':
             if (selectedEventId) {
               executeCommand(transposeEvent(selectedEventId, -12));
+              recordSample('Ctrl+ArrowDown');
             }
             break;
           case 'convert-to-rest':
             if (selectedEventId) {
               executeCommand(convertToRest(selectedEventId));
+              recordSample('Delete');
             }
             break;
           case 'enter-rest':
-            window.__perfT0 = performance.now();
             enterRestAtCursor(t('error.doesNotFit'), t('error.noCursor'));
+            recordSample('Digit0');
             break;
           case 'toggle-dot':
             toggleDot();
@@ -357,8 +404,8 @@ const EditorShell: React.FC = () => {
         }
       } else if (typeof action === 'object') {
         if (action.type === 'enter-pitch') {
-          window.__perfT0 = performance.now();
           enterPitchAtCursor(action.letter, t('error.doesNotFit'), t('error.noCursor'));
+          recordSample(`Key${action.letter}`);
         } else if (action.type === 'set-duration') {
           setActiveDuration(action.baseType);
           setIsRestSelected(false);
@@ -389,6 +436,8 @@ const EditorShell: React.FC = () => {
 
   return (
     <div
+      className="notranslate"
+      translate="no"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -437,6 +486,12 @@ const EditorShell: React.FC = () => {
         canUndo={canUndo}
         onClose={() => setIsNewModalOpen(false)}
         onCreate={handleCreateNewScore}
+      />
+
+      <Diagnostics
+        isOpen={isDiagnosticsOpen}
+        onClose={() => setIsDiagnosticsOpen(false)}
+        samples={perfSamples}
       />
     </div>
   );

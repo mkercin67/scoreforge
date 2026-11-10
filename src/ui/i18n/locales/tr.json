@@ -66,5 +66,9 @@
   "dialog.cancel": "İptal",
   "error.noCursor": "İmleç yok, bir ölçüye tıklayın",
   "error.doesNotFit": "Nota ölçüye sığmıyor",
-  "error.generic": "Bir hata oluştu"
+  "error.generic": "Bir hata oluştu",
+  "diagnostics.title": "Tanılama Paneli",
+  "diagnostics.copy": "Kopyala",
+  "diagnostics.copied": "Kopyalandı!",
+  "diagnostics.close": "Kapat"
 }

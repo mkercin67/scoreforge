@@ -1,12 +1,14 @@
 /**
  * Memoized React component rendering a single layout system into SVG elements.
  *
- * Prevents full-SVG DOM rebuilds on keystrokes: unchanged systems are memoized
- * and skip DOM mutations entirely.
+ * Performance optimizations:
+ * 1. Combines 5 staff lines into a single <path> element (saving 4 elements per system).
+ * 2. Replaces individual event hit rects with ONE transparent rect per measure (saving ~75% rect elements).
+ * 3. Skips DOM reconciliation for unchanged systems via React.memo.
  */
 
 import React, { useMemo } from 'react';
-import { LayoutSystem } from '../layout/types';
+import { LayoutItem, LayoutSystem } from '../layout/types';
 import { getGlyphChar } from '../render/smufl';
 
 export interface SystemViewProps {
@@ -14,65 +16,72 @@ export interface SystemViewProps {
   staffSpacePx: number;
 }
 
-interface EventBoundingBox {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
-}
-
 export const SystemView: React.FC<SystemViewProps> = React.memo(
   ({ system, staffSpacePx }) => {
     const fontSize = staffSpacePx * 4;
 
-    // Compute hit areas for events in this system
-    const hitAreas = useMemo(() => {
-      const boxes = new Map<string, EventBoundingBox>();
+    // Separate staff lines from other lines so they can be merged into 1 path
+    const { staffLines, otherItems } = useMemo(() => {
+      const staffLines: LayoutItem[] = [];
+      const otherItems: LayoutItem[] = [];
       for (const item of system.items) {
-        if (item.hidden || !item.eventId) continue;
-        let b = boxes.get(item.eventId);
-        if (!b) {
-          b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
-          boxes.set(item.eventId, b);
-        }
-        const itemX = item.x;
-        const itemY = item.y;
-        if (item.kind === 'line') {
-          const itemX2 = item.x2 ?? itemX;
-          const itemY2 = item.y2 ?? itemY;
-          b.minX = Math.min(b.minX, itemX, itemX2);
-          b.maxX = Math.max(b.maxX, itemX, itemX2);
-          b.minY = Math.min(b.minY, itemY, itemY2);
-          b.maxY = Math.max(b.maxY, itemY, itemY2);
+        if (item.kind === 'line' && item.id.includes('staffline')) {
+          staffLines.push(item);
         } else {
-          b.minX = Math.min(b.minX, itemX);
-          b.maxX = Math.max(b.maxX, itemX + 1.2);
-          b.minY = Math.min(b.minY, itemY - 1.0);
-          b.maxY = Math.max(b.maxY, itemY + 0.5);
+          otherItems.push(item);
         }
       }
+      return { staffLines, otherItems };
+    }, [system.items]);
 
-      const margin = 0.5;
-      const rects: Array<{ eventId: string; x: number; y: number; width: number; height: number }> = [];
-      for (const [eventId, box] of boxes.entries()) {
-        const hitX = (box.minX - margin) * staffSpacePx;
-        const hitY = (system.y + box.minY - margin) * staffSpacePx;
-        const hitW = (box.maxX - box.minX + 2 * margin) * staffSpacePx;
-        const hitH = (box.maxY - box.minY + 2 * margin) * staffSpacePx;
-        rects.push({
-          eventId,
-          x: hitX,
-          y: hitY,
-          width: Math.max(1, hitW),
-          height: Math.max(1, hitH),
-        });
+    // Combine 5 staff lines into 1 SVG <path>
+    const staffLinesPath = useMemo(() => {
+      if (staffLines.length === 0) return null;
+      const minX = Math.min(...staffLines.map((l) => l.x)) * staffSpacePx;
+      const maxX = Math.max(...staffLines.map((l) => l.x2 ?? l.x)) * staffSpacePx;
+      const thickness = (staffLines[0]?.thickness ?? 0.13) * staffSpacePx;
+      const d = staffLines
+        .map((l) => `M ${minX} ${(system.y + l.y) * staffSpacePx} H ${maxX}`)
+        .join(' ');
+      return { d, thickness };
+    }, [staffLines, system.y, staffSpacePx]);
+
+    // Compute ONE transparent hit-test rect per measure instead of 1 per event
+    const measureBoxes = useMemo(() => {
+      const barlines: Array<{ id: string; x: number }> = [];
+      for (const item of system.items) {
+        if (item.kind === 'line' && item.id.startsWith('barline-') && !item.id.includes('staffline')) {
+          barlines.push({ id: item.id, x: item.x });
+        }
       }
-      return rects;
-    }, [system.items, system.y, staffSpacePx]);
+      barlines.sort((a, b) => a.x - b.x);
+
+      const boxes: Array<{ measureId: string; x: number; width: number }> = [];
+      let startX = 0;
+      for (const bl of barlines) {
+        const mId = bl.id.replace('barline-', '').replace('-thin', '');
+        const width = Math.max(1, bl.x - startX);
+        boxes.push({ measureId: mId, x: startX, width });
+        startX = bl.x;
+      }
+      return boxes;
+    }, [system.items]);
 
     return (
-      <g data-system-index={system.index}>
-        {system.items.map((item) => {
+      <g data-system-index={system.index} className="notranslate">
+        {/* Merged staff lines: 1 path replaces 5 lines */}
+        {staffLinesPath && (
+          <path
+            data-id={`sys-${system.index}-stafflines`}
+            d={staffLinesPath.d}
+            stroke="currentColor"
+            strokeWidth={staffLinesPath.thickness}
+            strokeLinecap="butt"
+          />
+        )}
+
+        {/* Regular lines and glyphs */}
+        {otherItems.map((item) => {
           if (item.hidden) return null;
           const pxX = item.x * staffSpacePx;
           const pxY = (system.y + item.y) * staffSpacePx;
@@ -105,7 +114,7 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
                 data-event-id={item.eventId}
                 x={pxX}
                 y={pxY}
-                className="scoreforge-glyph"
+                className="scoreforge-glyph notranslate"
                 style={{
                   fontFamily: 'Bravura, serif',
                   dominantBaseline: 'alphabetic',
@@ -124,16 +133,16 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
           return null;
         })}
 
-        {/* Event hit rects */}
-        {hitAreas.map((area) => (
+        {/* ONE transparent hit rect per measure (lightweight X-based hit testing) */}
+        {measureBoxes.map((m) => (
           <rect
-            key={`hit-${area.eventId}`}
-            className="event-hit-area"
-            data-event-id={area.eventId}
-            x={area.x}
-            y={area.y}
-            width={area.width}
-            height={area.height}
+            key={`measure-hit-${m.measureId}`}
+            data-measure-id={m.measureId}
+            className="measure-hit-area notranslate"
+            x={m.x * staffSpacePx}
+            y={(system.y - 1) * staffSpacePx}
+            width={m.width * staffSpacePx}
+            height={6 * staffSpacePx}
             fill="transparent"
             stroke="none"
             strokeWidth={0}
@@ -149,7 +158,6 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
     if (prev.system === next.system) return true;
     if (prev.system.y !== next.system.y || prev.system.width !== next.system.width) return false;
     if (prev.system.items.length !== next.system.items.length) return false;
-    // Fast comparison: if all items have identical references
     for (let i = 0; i < prev.system.items.length; i++) {
       if (prev.system.items[i] !== next.system.items[i]) return false;
     }
