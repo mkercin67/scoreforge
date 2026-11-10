@@ -2,13 +2,32 @@
  * State management hook for ScoreForge editor.
  *
  * Encapsulates the Score data model, Command history stack, selection state,
- * and event metadata resolution.
+ * note input mode, cursor positioning, and error timing.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Command, History } from '../core/commands';
-import { NoteEvent, Pitch, Score, ScoreEvent } from '../core/model';
+import {
+  BaseDurationType,
+  NoteEvent,
+  Pitch,
+  PitchStep,
+  Score,
+  ScoreEvent,
+} from '../core/model';
 import { eventExists, nextEventId } from '../core/selection';
+import {
+  advanceCursor,
+  appendMeasure,
+  enterNote,
+  enterRest,
+  moveCursor,
+  pitchFromLetter,
+  planEnter,
+  ScoreCursor,
+  snapCursor,
+} from '../core/input';
+import { durationTicks, measureTicks } from '../core/time';
 import { buildSampleScore } from './Demo';
 
 export interface SelectedEventInfo {
@@ -24,9 +43,54 @@ export interface SelectedEventInfo {
 }
 
 export function useEditor(initialScore?: Score) {
-  const [history] = useState<History>(() => new History(initialScore ?? buildSampleScore('G')));
+  const [history, setHistory] = useState<History>(() => new History(initialScore ?? buildSampleScore('G')));
   const [score, setScore] = useState<Score>(() => history.score);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+
+  // Note Input Mode states
+  const [isInputMode, setIsInputMode] = useState<boolean>(false);
+  const [activeDuration, setActiveDuration] = useState<BaseDurationType>('quarter');
+  const [activeDots, setActiveDots] = useState<number>(0);
+  const [isRestSelected, setIsRestSelected] = useState<boolean>(false);
+
+  const [cursor, setCursor] = useState<ScoreCursor | null>(() => {
+    const sId = history.score.parts[0]?.staves[0]?.id;
+    const mId = history.score.measures[0]?.id;
+    const vId = history.score.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
+    if (sId && mId && vId) {
+      return { staffId: sId, voiceId: vId, measureId: mId, tick: 0 };
+    }
+    return null;
+  });
+
+  const [rejectedError, setRejectedError] = useState<string | null>(null);
+  const errorTimerRef = useRef<number | null>(null);
+
+  const triggerRejectedError = useCallback((msg: string) => {
+    if (typeof window === 'undefined') return;
+    if (errorTimerRef.current) {
+      window.clearTimeout(errorTimerRef.current);
+    }
+    setRejectedError(msg);
+    errorTimerRef.current = window.setTimeout(() => {
+      setRejectedError(null);
+      errorTimerRef.current = null;
+    }, 2000);
+  }, []);
+
+  const resetScore = useCallback((newScore: Score) => {
+    const newHist = new History(newScore);
+    setHistory(newHist);
+    setScore(newHist.score);
+    setSelectedEventId(null);
+
+    const sId = newScore.parts[0]?.staves[0]?.id;
+    const mId = newScore.measures[0]?.id;
+    const vId = newScore.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
+    if (sId && mId && vId) {
+      setCursor({ staffId: sId, voiceId: vId, measureId: mId, tick: 0 });
+    }
+  }, []);
 
   const executeCommand = useCallback(
     (cmd: Command) => {
@@ -41,6 +105,7 @@ export function useEditor(initialScore?: Score) {
     if (prevScore) {
       setScore(prevScore);
       setSelectedEventId((curr) => (curr && eventExists(prevScore, curr) ? curr : null));
+      setCursor((c) => (c ? snapCursor(prevScore, c) : null));
     }
   }, [history]);
 
@@ -49,6 +114,7 @@ export function useEditor(initialScore?: Score) {
     if (nextScore) {
       setScore(nextScore);
       setSelectedEventId((curr) => (curr && eventExists(nextScore, curr) ? curr : null));
+      setCursor((c) => (c ? snapCursor(nextScore, c) : null));
     }
   }, [history]);
 
@@ -66,6 +132,183 @@ export function useEditor(initialScore?: Score) {
       }
     },
     [score, selectedEventId]
+  );
+
+  // Toggle note-input mode
+  const toggleInputMode = useCallback(() => {
+    setIsInputMode((prev) => {
+      const next = !prev;
+      if (next && !cursor) {
+        const sId = score.parts[0]?.staves[0]?.id;
+        const mId = score.measures[0]?.id;
+        const vId = score.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
+        if (sId && mId && vId) {
+          setCursor({ staffId: sId, voiceId: vId, measureId: mId, tick: 0 });
+        }
+      }
+      return next;
+    });
+  }, [cursor, score]);
+
+  const exitInputMode = useCallback(() => {
+    setIsInputMode(false);
+  }, []);
+
+  const toggleDot = useCallback(() => {
+    setActiveDots((prev) => (prev > 0 ? 0 : 1));
+  }, []);
+
+  const toggleRestSelected = useCallback(() => {
+    setIsRestSelected((prev) => !prev);
+  }, []);
+
+  // Enter a note or rest with the keyboard
+  const enterPitchAtCursor = useCallback(
+    (letter: PitchStep, errorMsg: string) => {
+      let activeCursor = cursor;
+      if (!activeCursor) {
+        const sId = score.parts[0]?.staves[0]?.id;
+        const mId = score.measures[0]?.id;
+        const vId = score.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
+        if (!sId || !mId || !vId) return;
+        activeCursor = { staffId: sId, voiceId: vId, measureId: mId, tick: 0 };
+        setCursor(activeCursor);
+      }
+
+      const mDef = score.measures.find((m) => m.id === activeCursor.measureId);
+      if (!mDef) return;
+
+      const part = score.parts.find((p) => p.staves.some((s) => s.id === activeCursor.staffId));
+      const staff = part?.staves.find((s) => s.id === activeCursor.staffId);
+      const clef = staff?.clef ?? { sign: 'G' as const, line: 2 };
+      const keySig = mDef.keySig;
+
+      // Determine previous pitch reference
+      let refPitch: Pitch | null = null;
+      if (selectedEventId) {
+        const sm = staff?.measures[activeCursor.measureId];
+        for (const voice of sm?.voices ?? []) {
+          const ev = voice.events.find((e) => e.id === selectedEventId);
+          if (ev && ev.kind === 'note' && (ev as NoteEvent).pitches.length > 0) {
+            refPitch = (ev as NoteEvent).pitches[0];
+            break;
+          }
+        }
+      }
+
+      const pitch = pitchFromLetter(letter, refPitch, clef, keySig);
+      const plan = planEnter(score, activeCursor, {
+        kind: 'note',
+        baseType: activeDuration,
+        dots: activeDots,
+        pitch,
+      });
+
+      if (!plan.ok) {
+        triggerRejectedError(errorMsg);
+        return;
+      }
+
+      const duration = durationTicks(activeDuration, activeDots);
+      const mIdx = score.measures.findIndex((m) => m.id === activeCursor.measureId);
+      const mLength = measureTicks(mDef.timeSig);
+      const isLastMeasure = mIdx === score.measures.length - 1;
+      const willFinishMeasure = activeCursor.tick + duration >= mLength;
+
+      // If completing the last measure, append new measure first
+      if (isLastMeasure && willFinishMeasure) {
+        history.do(appendMeasure());
+      }
+
+      const nextScore = history.do(
+        enterNote(activeCursor, {
+          baseType: activeDuration,
+          dots: activeDots,
+          pitch,
+        })
+      );
+      setScore(nextScore);
+      setSelectedEventId(plan.newEvent.id);
+
+      const nextCursor = advanceCursor(nextScore, activeCursor, duration);
+      setCursor(nextCursor);
+    },
+    [cursor, score, selectedEventId, activeDuration, activeDots, history, triggerRejectedError]
+  );
+
+  const enterRestAtCursor = useCallback(
+    (errorMsg: string) => {
+      let activeCursor = cursor;
+      if (!activeCursor) {
+        const sId = score.parts[0]?.staves[0]?.id;
+        const mId = score.measures[0]?.id;
+        const vId = score.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
+        if (!sId || !mId || !vId) return;
+        activeCursor = { staffId: sId, voiceId: vId, measureId: mId, tick: 0 };
+        setCursor(activeCursor);
+      }
+
+      const mDef = score.measures.find((m) => m.id === activeCursor.measureId);
+      if (!mDef) return;
+
+      const plan = planEnter(score, activeCursor, {
+        kind: 'rest',
+        baseType: activeDuration,
+        dots: activeDots,
+      });
+
+      if (!plan.ok) {
+        triggerRejectedError(errorMsg);
+        return;
+      }
+
+      const duration = durationTicks(activeDuration, activeDots);
+      const mIdx = score.measures.findIndex((m) => m.id === activeCursor.measureId);
+      const mLength = measureTicks(mDef.timeSig);
+      const isLastMeasure = mIdx === score.measures.length - 1;
+      const willFinishMeasure = activeCursor.tick + duration >= mLength;
+
+      if (isLastMeasure && willFinishMeasure) {
+        history.do(appendMeasure());
+      }
+
+      const nextScore = history.do(
+        enterRest(activeCursor, {
+          baseType: activeDuration,
+          dots: activeDots,
+        })
+      );
+      setScore(nextScore);
+      setSelectedEventId(plan.newEvent.id);
+
+      const nextCursor = advanceCursor(nextScore, activeCursor, duration);
+      setCursor(nextCursor);
+    },
+    [cursor, score, activeDuration, activeDots, history, triggerRejectedError]
+  );
+
+  const moveCursorDirection = useCallback(
+    (direction: 'prev' | 'next') => {
+      if (!cursor) return;
+      const nextCursor = moveCursor(score, cursor, direction);
+      setCursor(nextCursor);
+
+      // Select event at new cursor position
+      const staff = score.parts[0]?.staves.find((s) => s.id === nextCursor.staffId);
+      const sm = staff?.measures[nextCursor.measureId];
+      const voice = sm?.voices.find((v) => v.id === nextCursor.voiceId) ?? sm?.voices[0];
+      if (voice) {
+        let t = 0;
+        for (const ev of voice.events) {
+          if (t === nextCursor.tick) {
+            setSelectedEventId(ev.id);
+            break;
+          }
+          t += ev.duration;
+        }
+      }
+    },
+    [cursor, score]
   );
 
   // Locate the selected event and its measure index across the score
@@ -100,9 +343,14 @@ export function useEditor(initialScore?: Score) {
         }
       }
     }
-
     return null;
   }, [score, selectedEventId]);
+
+  const currentMeasureNumber = useMemo(() => {
+    if (!cursor) return 1;
+    const idx = score.measures.findIndex((m) => m.id === cursor.measureId);
+    return idx >= 0 ? idx + 1 : 1;
+  }, [score, cursor]);
 
   return {
     score,
@@ -111,9 +359,30 @@ export function useEditor(initialScore?: Score) {
     executeCommand,
     undo,
     redo,
+    resetScore,
     selectedEventId,
     selectEvent,
     selectNext,
     selectedEventInfo,
+    isInputMode,
+    setIsInputMode,
+    toggleInputMode,
+    exitInputMode,
+    activeDuration,
+    setActiveDuration,
+    activeDots,
+    setActiveDots,
+    toggleDot,
+    isRestSelected,
+    setIsRestSelected,
+    toggleRestSelected,
+    cursor,
+    setCursor,
+    currentMeasureNumber,
+    rejectedError,
+    triggerRejectedError,
+    enterPitchAtCursor,
+    enterRestAtCursor,
+    moveCursorDirection,
   };
 }

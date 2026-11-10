@@ -1,19 +1,55 @@
 /**
- * Status bar presenting details of the currently selected event and editor hints.
+ * Status bar presenting details of the currently selected event, note input mode status,
+ * temporary error messages, and editor hints.
  */
 
 import React from 'react';
+import { BaseDurationType } from '../core/model';
 import { formatPitchName, useI18n } from './i18n';
 import { SelectedEventInfo } from './useEditor';
 
 export interface StatusBarProps {
   selection: SelectedEventInfo | null;
+  isInputMode?: boolean;
+  activeDuration?: BaseDurationType;
+  currentMeasureNumber?: number;
+  rejectedMessage?: string | null;
 }
 
-export const StatusBar: React.FC<StatusBarProps> = ({ selection }) => {
+export const StatusBar: React.FC<StatusBarProps> = ({
+  selection,
+  isInputMode = false,
+  activeDuration = 'quarter',
+  currentMeasureNumber = 1,
+  rejectedMessage = null,
+}) => {
   const { t, language, noteNameStyle } = useI18n();
 
-  const renderSelectionText = () => {
+  const renderStatusContent = () => {
+    // 1. Priority: Temporary rejected entry error message (shown in red for 2 seconds)
+    if (rejectedMessage) {
+      return (
+        <span style={{ color: '#dc2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <span>⚠</span>
+          <span>{rejectedMessage}</span>
+        </span>
+      );
+    }
+
+    // 2. Note Input Mode info: "Nota girişi · Dörtlük nota · Ölçü 2"
+    if (isInputMode) {
+      const durationText = t(`duration.${activeDuration}.note`);
+      return (
+        <span style={{ color: '#1d4ed8', fontWeight: 600 }}>
+          {t('status.inputMode', {
+            duration: durationText,
+            measure: currentMeasureNumber,
+          })}
+        </span>
+      );
+    }
+
+    // 3. Normal selection inspection
     if (!selection) {
       return (
         <span style={{ color: '#64748b', fontStyle: 'italic' }}>
@@ -89,10 +125,16 @@ export const StatusBar: React.FC<StatusBarProps> = ({ selection }) => {
             width: '8px',
             height: '8px',
             borderRadius: '50%',
-            backgroundColor: selection ? '#2563eb' : '#94a3b8',
+            backgroundColor: rejectedMessage
+              ? '#dc2626'
+              : isInputMode
+              ? '#2563eb'
+              : selection
+              ? '#2563eb'
+              : '#94a3b8',
           }}
         />
-        {renderSelectionText()}
+        {renderStatusContent()}
       </div>
 
       <div style={{ display: 'flex', gap: '1rem', color: '#64748b', fontSize: '0.8rem' }}>

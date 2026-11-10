@@ -101,6 +101,7 @@ export interface NoteEvent extends BaseEvent {
 /** Rest event. */
 export interface RestEvent extends BaseEvent {
   kind: 'rest';
+  wholeMeasure?: boolean;
 }
 
 /** Musical pitch step letter. */

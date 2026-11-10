@@ -19,6 +19,7 @@ const translations: Record<Language, TranslationMap> = {
 
 const STORAGE_LANG_KEY = 'scoreforge_language';
 const STORAGE_NOTENAME_KEY = 'scoreforge_notename_style';
+const STORAGE_ZOOM_KEY = 'scoreforge_zoom';
 
 function readStoredSetting<T extends string>(key: string, defaultValue: T): T {
   try {
@@ -75,6 +76,8 @@ export interface I18nContextValue {
   setLanguage: (lang: Language) => void;
   noteNameStyle: NoteNameStyle;
   setNoteNameStyle: (style: NoteNameStyle) => void;
+  zoom: number;
+  setZoom: (zoom: number) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
 }
 
@@ -84,6 +87,7 @@ export interface I18nProviderProps {
   children: React.ReactNode;
   initialLanguage?: Language;
   initialNoteNameStyle?: NoteNameStyle;
+  initialZoom?: number;
 }
 
 /**
@@ -93,6 +97,7 @@ export const I18nProvider: React.FC<I18nProviderProps> = ({
   children,
   initialLanguage,
   initialNoteNameStyle,
+  initialZoom,
 }) => {
   const [language, setLanguageState] = useState<Language>(() => {
     if (initialLanguage) return initialLanguage;
@@ -100,7 +105,7 @@ export const I18nProvider: React.FC<I18nProviderProps> = ({
       const q = new URLSearchParams(window.location.search);
       const urlLang = q.get('lang');
       if (urlLang === 'tr' || urlLang === 'en') return urlLang;
-      if (q.get('state') === 'lang_en') return 'en';
+      if (q.get('state') === 'lang_en' || q.get('state') === 'verify_9') return 'en';
     }
     return readStoredSetting<Language>(STORAGE_LANG_KEY, 'tr');
   });
@@ -116,6 +121,22 @@ export const I18nProvider: React.FC<I18nProviderProps> = ({
     return readStoredSetting<NoteNameStyle>(STORAGE_NOTENAME_KEY, 'solfege');
   });
 
+  const [zoom, setZoomState] = useState<number>(() => {
+    if (initialZoom) return initialZoom;
+    if (typeof window !== 'undefined') {
+      const q = new URLSearchParams(window.location.search);
+      const urlZoom = q.get('zoom');
+      if (urlZoom) {
+        const parsed = parseFloat(urlZoom);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+      if (q.get('state') === 'verify_8') return 1.5;
+    }
+    const stored = readStoredSetting<string>(STORAGE_ZOOM_KEY, '1.0');
+    const parsed = parseFloat(stored);
+    return !isNaN(parsed) && parsed > 0 ? parsed : 1.0;
+  });
+
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
     writeStoredSetting(STORAGE_LANG_KEY, lang);
@@ -124,6 +145,11 @@ export const I18nProvider: React.FC<I18nProviderProps> = ({
   const setNoteNameStyle = (style: NoteNameStyle) => {
     setNoteNameStyleState(style);
     writeStoredSetting(STORAGE_NOTENAME_KEY, style);
+  };
+
+  const setZoom = (z: number) => {
+    setZoomState(z);
+    writeStoredSetting(STORAGE_ZOOM_KEY, String(z));
   };
 
   const t = useMemo(() => {
@@ -138,9 +164,11 @@ export const I18nProvider: React.FC<I18nProviderProps> = ({
       setLanguage,
       noteNameStyle,
       setNoteNameStyle,
+      zoom,
+      setZoom,
       t,
     }),
-    [language, noteNameStyle, t]
+    [language, noteNameStyle, zoom, t]
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

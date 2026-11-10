@@ -6,7 +6,7 @@
  * system wrapping, non-last system justification, and manual visual overrides.
  */
 
-import { Clef, NoteEvent, Part, Score, ScoreEvent } from '../core/model';
+import { Clef, NoteEvent, Part, RestEvent, Score, ScoreEvent } from '../core/model';
 import { PPQ } from '../core/time';
 import { MeasureAccidentalTracker } from './accidentals';
 import { getKeySignatureAccidentals, getKeySignatureAlter } from './keySignature';
@@ -174,8 +174,9 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
     // Process events
     for (let eIdx = 0; eIdx < events.length; eIdx++) {
       const ev = events[eIdx];
+      const isWholeMeasureRest = ev.kind === 'rest' && Boolean((ev as RestEvent).wholeMeasure);
       const durationFactor = ev.duration / PPQ;
-      const eventWidth = 3.5 + durationFactor * 2.0;
+      const eventWidth = isWholeMeasureRest ? 8.0 : 3.5 + durationFactor * 2.0;
 
       // Prevent first event accidental from touching the preceding header / time signature.
       // Gap between the last header glyph and accidental must be at least 0.8 staff spaces.
@@ -196,37 +197,44 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
         }
       }
 
-      const eventCenterX = relX + 0.8 + firstEventAccidentalPadding;
+      const eventCenterX = isWholeMeasureRest
+        ? relX + eventWidth / 2 - 0.7
+        : relX + 0.8 + firstEventAccidentalPadding;
 
       if (ev.kind === 'rest') {
         let restGlyph = 'restQuarter';
         let restY = 2.0;
 
-        switch (ev.baseType) {
-          case 'whole':
-            restGlyph = 'restWhole';
-            restY = 1.0;
-            break;
-          case 'half':
-            restGlyph = 'restHalf';
-            restY = 2.0;
-            break;
-          case 'quarter':
-            restGlyph = 'restQuarter';
-            restY = 2.0;
-            break;
-          case 'eighth':
-            restGlyph = 'rest8th';
-            restY = 2.0;
-            break;
-          case '16th':
-            restGlyph = 'rest16th';
-            restY = 2.0;
-            break;
-          case '32nd':
-            restGlyph = 'rest32nd';
-            restY = 2.0;
-            break;
+        if (isWholeMeasureRest) {
+          restGlyph = 'restWhole';
+          restY = 1.0;
+        } else {
+          switch (ev.baseType) {
+            case 'whole':
+              restGlyph = 'restWhole';
+              restY = 1.0;
+              break;
+            case 'half':
+              restGlyph = 'restHalf';
+              restY = 2.0;
+              break;
+            case 'quarter':
+              restGlyph = 'restQuarter';
+              restY = 2.0;
+              break;
+            case 'eighth':
+              restGlyph = 'rest8th';
+              restY = 2.0;
+              break;
+            case '16th':
+              restGlyph = 'rest16th';
+              restY = 2.0;
+              break;
+            case '32nd':
+              restGlyph = 'rest32nd';
+              restY = 2.0;
+              break;
+          }
         }
 
         measureItems.push({

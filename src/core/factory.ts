@@ -15,7 +15,7 @@ import {
   Score,
   Staff,
 } from './model';
-import { durationTicks } from './time';
+import { durationTicks, measureTicks } from './time';
 
 /**
  * Generates a unique RFC4122 v4 UUID string.
@@ -169,6 +169,8 @@ export interface CreateRestOptions {
   baseType?: BaseDurationType;
   dots?: number;
   tuplet?: { actual: number; normal: number };
+  duration?: number;
+  wholeMeasure?: boolean;
 }
 
 /**
@@ -178,9 +180,13 @@ export interface CreateRestOptions {
  * @returns A RestEvent instance.
  */
 export function createRest(options?: CreateRestOptions): RestEvent {
-  const baseType = options?.baseType ?? 'quarter';
-  const dots = options?.dots ?? 0;
-  const duration = durationTicks(baseType, dots, options?.tuplet);
+  const wholeMeasure = options?.wholeMeasure ?? false;
+  const baseType = wholeMeasure ? 'whole' : options?.baseType ?? 'quarter';
+  const dots = wholeMeasure ? 0 : options?.dots ?? 0;
+  const duration =
+    options?.duration !== undefined
+      ? options.duration
+      : durationTicks(baseType, dots, options?.tuplet);
 
   return {
     kind: 'rest',
@@ -189,5 +195,58 @@ export function createRest(options?: CreateRestOptions): RestEvent {
     dots,
     tuplet: options?.tuplet ? { ...options.tuplet } : undefined,
     duration,
+    wholeMeasure: wholeMeasure ? true : undefined,
   };
+}
+
+export interface CreateEmptyScoreOptions {
+  title?: string;
+  composer?: string;
+  clef?: Clef;
+  keySig?: number;
+  timeSig?: { num: number; den: number };
+  measures?: number;
+}
+
+/**
+ * Creates a complete empty score with wholeMeasure rests in each measure.
+ *
+ * @param options - Clef, key signature, time signature, and measure count.
+ * @returns A fully initialized Score ready for editing.
+ */
+export function createEmptyScore(options: CreateEmptyScoreOptions = {}): Score {
+  const clef = options.clef ?? { sign: 'G', line: 2 };
+  const keySig = options.keySig ?? 0;
+  const timeSig = options.timeSig ?? { num: 4, den: 4 };
+  const numMeasures = options.measures ?? 8;
+
+  const score = createScore({
+    title: options.title ?? 'Untitled Score',
+    composer: options.composer ?? '',
+  });
+
+  const part = createPart({
+    name: clef.sign === 'F' ? 'Bass' : 'Treble',
+    clef,
+  });
+  score.parts = [part];
+
+  const mDuration = measureTicks(timeSig);
+
+  for (let i = 0; i < numMeasures; i++) {
+    const mDef = createMeasure(timeSig, keySig);
+    score.measures.push(mDef);
+
+    const wholeRest = createRest({
+      baseType: 'whole',
+      duration: mDuration,
+      wholeMeasure: true,
+    });
+
+    part.staves[0].measures[mDef.id] = {
+      voices: [{ id: newId(), events: [wholeRest] }],
+    };
+  }
+
+  return score;
 }

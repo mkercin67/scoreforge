@@ -20,16 +20,17 @@ describe('keymap', () => {
     expect(mapKeyEvent({ code: 'Backspace' })).toBe('convert-to-rest');
   });
 
-  it('maps ArrowLeft and ArrowRight to previous and next selection', () => {
+  it('maps ArrowLeft and ArrowRight to previous and next navigation', () => {
     expect(mapKeyEvent({ code: 'ArrowLeft' })).toBe('select-prev');
     expect(mapKeyEvent({ code: 'ArrowRight' })).toBe('select-next');
   });
 
-  it('maps Escape to clear-selection', () => {
-    expect(mapKeyEvent({ code: 'Escape' })).toBe('clear-selection');
+  it('maps Escape based on isInputMode', () => {
+    expect(mapKeyEvent({ code: 'Escape' }, false)).toBe('clear-selection');
+    expect(mapKeyEvent({ code: 'Escape' }, true)).toBe('exit-note-input');
   });
 
-  it('maps Ctrl+Z and Ctrl+Shift+Z / Ctrl+Y to undo and redo', () => {
+  it('maps Ctrl+Z and Ctrl+Shift+Z / Ctrl+Y to undo and redo, untouched by input keys', () => {
     expect(mapKeyEvent({ code: 'KeyZ', ctrlKey: true })).toBe('undo');
     expect(mapKeyEvent({ code: 'KeyZ', metaKey: true })).toBe('undo');
 
@@ -38,9 +39,48 @@ describe('keymap', () => {
     expect(mapKeyEvent({ code: 'KeyY', metaKey: true })).toBe('redo');
   });
 
+  it('maps KeyN to toggle-note-input', () => {
+    expect(mapKeyEvent({ code: 'KeyN' })).toBe('toggle-note-input');
+    // Ignored when Ctrl is held
+    expect(mapKeyEvent({ code: 'KeyN', ctrlKey: true })).toBeNull();
+  });
+
+  it('maps KeyA..KeyG to enter-pitch with physical code', () => {
+    expect(mapKeyEvent({ code: 'KeyA' })).toEqual({ type: 'enter-pitch', letter: 'A' });
+    expect(mapKeyEvent({ code: 'KeyB' })).toEqual({ type: 'enter-pitch', letter: 'B' });
+    expect(mapKeyEvent({ code: 'KeyC' })).toEqual({ type: 'enter-pitch', letter: 'C' });
+    expect(mapKeyEvent({ code: 'KeyD' })).toEqual({ type: 'enter-pitch', letter: 'D' });
+    expect(mapKeyEvent({ code: 'KeyE' })).toEqual({ type: 'enter-pitch', letter: 'E' });
+    expect(mapKeyEvent({ code: 'KeyF' })).toEqual({ type: 'enter-pitch', letter: 'F' });
+    expect(mapKeyEvent({ code: 'KeyG' })).toEqual({ type: 'enter-pitch', letter: 'G' });
+
+    // Modifiers ignore note entry
+    expect(mapKeyEvent({ code: 'KeyC', ctrlKey: true })).toBeNull();
+    expect(mapKeyEvent({ code: 'KeyC', altKey: true })).toBeNull();
+  });
+
+  it('maps Digit0 to enter-rest', () => {
+    expect(mapKeyEvent({ code: 'Digit0' })).toBe('enter-rest');
+    expect(mapKeyEvent({ code: 'Digit0', ctrlKey: true })).toBeNull();
+  });
+
+  it('maps Digit2..Digit7 to set-duration', () => {
+    expect(mapKeyEvent({ code: 'Digit2' })).toEqual({ type: 'set-duration', baseType: '32nd' });
+    expect(mapKeyEvent({ code: 'Digit3' })).toEqual({ type: 'set-duration', baseType: '16th' });
+    expect(mapKeyEvent({ code: 'Digit4' })).toEqual({ type: 'set-duration', baseType: 'eighth' });
+    expect(mapKeyEvent({ code: 'Digit5' })).toEqual({ type: 'set-duration', baseType: 'quarter' });
+    expect(mapKeyEvent({ code: 'Digit6' })).toEqual({ type: 'set-duration', baseType: 'half' });
+    expect(mapKeyEvent({ code: 'Digit7' })).toEqual({ type: 'set-duration', baseType: 'whole' });
+  });
+
+  it('maps Period to toggle-dot', () => {
+    expect(mapKeyEvent({ code: 'Period' })).toBe('toggle-dot');
+  });
+
   it('returns null for unrecognized keys', () => {
-    expect(mapKeyEvent({ code: 'KeyA' })).toBeNull();
     expect(mapKeyEvent({ code: 'Space' })).toBeNull();
     expect(mapKeyEvent({ code: 'Tab' })).toBeNull();
+    expect(mapKeyEvent({ code: 'Digit1' })).toBeNull();
+    expect(mapKeyEvent({ code: 'Digit8' })).toBeNull();
   });
 });
