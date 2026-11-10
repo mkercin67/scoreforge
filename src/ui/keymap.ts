@@ -23,6 +23,8 @@ export type UserAction =
   | 'enter-rest'
   | 'toggle-dot'
   | 'show-input-off-hint'
+  | 'reset-override'
+  | { type: 'nudge-override'; dx: number; dy: number }
   | { type: 'enter-pitch'; letter: PitchStep }
   | { type: 'set-duration'; baseType: BaseDurationType };
 
@@ -80,6 +82,20 @@ export function mapKeyEvent(e: KeyEventLike, isInputMode = false): UserAction | 
     if (e.code === 'ArrowDown' && !isShift) {
       return 'transpose-octave-down';
     }
+    // Reset override with Ctrl+Digit0
+    if (e.code === 'Digit0') {
+      return 'reset-override';
+    }
+    return null;
+  }
+
+  // Nudge override with Alt+Arrow (or Shift+Alt+Arrow)
+  if (isAlt && !isCmdOrCtrl) {
+    const step = isShift ? 1.0 : 0.25;
+    if (e.code === 'ArrowUp') return { type: 'nudge-override', dx: 0, dy: -step };
+    if (e.code === 'ArrowDown') return { type: 'nudge-override', dx: 0, dy: step };
+    if (e.code === 'ArrowLeft') return { type: 'nudge-override', dx: -step, dy: 0 };
+    if (e.code === 'ArrowRight') return { type: 'nudge-override', dx: step, dy: 0 };
     return null;
   }
 

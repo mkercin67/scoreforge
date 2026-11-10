@@ -8,6 +8,7 @@
 import React, { useEffect, useLayoutEffect, useState } from 'react';
 import { convertToRest, transposeEvent } from '../core/commands';
 import { createEmptyScore } from '../core/factory';
+import { Pitch } from '../core/model';
 import { Diagnostics, PerfSample } from './Diagnostics';
 import { I18nProvider, useI18n } from './i18n';
 import { mapKeyEvent } from './keymap';
@@ -70,11 +71,16 @@ const EditorShell: React.FC = () => {
     enterPitchAtCursor,
     enterRestAtCursor,
     moveCursorDirection,
+    enterPitchDirect,
+    applyEventOverride,
+    clearEventOverride,
+    hasSelectedOverride,
   } = useEditor();
 
   const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState<boolean>(false);
   const [perfSamples, setPerfSamples] = useState<PerfSample[]>([]);
+  const [hoverPitch, setHoverPitch] = useState<Pitch | null>(null);
 
   const handleCreateNewScore = (config: NewScoreConfig) => {
     const t0 = performance.now();
@@ -452,6 +458,8 @@ const EditorShell: React.FC = () => {
         canRedo={canRedo}
         onUndo={undo}
         onRedo={redo}
+        canResetOverride={hasSelectedOverride}
+        onResetOverride={() => selectedEventId && clearEventOverride(selectedEventId)}
         onOpenNewScore={() => setIsNewModalOpen(true)}
         isInputMode={isInputMode}
         onToggleInputMode={toggleInputMode}
@@ -471,7 +479,11 @@ const EditorShell: React.FC = () => {
         onSelectEvent={selectEvent}
         cursor={cursor}
         isInputMode={isInputMode}
+        activeDuration={activeDuration}
         onSelectMeasure={setCursorToMeasure}
+        onEnterPitchDirect={enterPitchDirect}
+        onApplyOverride={applyEventOverride}
+        onHoverPitch={setHoverPitch}
       />
       <StatusBar
         selection={selectedEventInfo}
@@ -479,6 +491,8 @@ const EditorShell: React.FC = () => {
         activeDuration={activeDuration}
         currentMeasureNumber={currentMeasureNumber}
         rejectedMessage={rejectedError}
+        hasOverride={hasSelectedOverride}
+        hoverPitch={hoverPitch}
       />
 
       <NewScoreModal

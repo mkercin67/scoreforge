@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Command, History } from '../core/commands';
+import { Command, History, setOverride, clearOverride } from '../core/commands';
 import {
   BaseDurationType,
   NoteEvent,
@@ -249,6 +249,80 @@ export function useEditor(initialScore?: Score) {
     [isInputMode, cursor, score, activeDuration, activeDots, triggerRejectedError]
   );
 
+  const enterPitchDirect = useCallback(
+    (pitch: Pitch, customCursor?: ScoreCursor, errorMsg = 'Nota ölçüye sığmıyor') => {
+      if (!isInputMode) return;
+      const targetC = customCursor ?? cursor;
+      if (!targetC) {
+        triggerRejectedError('İmleç yok, bir ölçüye tıklayın');
+        return;
+      }
+
+      const activeCursor = snapCursor(score, targetC);
+      const mDef = score.measures.find((m) => m.id === activeCursor.measureId);
+      if (!mDef) return;
+
+      const eventId = newId();
+      const plan = planEnter(score, activeCursor, {
+        kind: 'note',
+        baseType: activeDuration,
+        dots: activeDots,
+        pitch,
+        eventId,
+      });
+
+      if (!plan.ok) {
+        triggerRejectedError(errorMsg);
+        return;
+      }
+
+      const duration = durationTicks(activeDuration, activeDots);
+      const mIdx = score.measures.findIndex((m) => m.id === activeCursor.measureId);
+      const mLength = measureTicks(mDef.timeSig);
+      const isLastMeasure = mIdx === score.measures.length - 1;
+      const willFinishMeasure = activeCursor.tick + duration >= mLength;
+
+      if (isLastMeasure && willFinishMeasure) {
+        historyRef.current.do(appendMeasure());
+      }
+
+      const nextScore = historyRef.current.do(
+        enterNote(activeCursor, {
+          baseType: activeDuration,
+          dots: activeDots,
+          pitch,
+          eventId,
+        })
+      );
+
+      setScore(nextScore);
+      setSelectedEventId(eventId);
+      lastEnteredPitchRef.current = pitch;
+
+      const nextCursor = advanceCursor(nextScore, activeCursor, duration);
+      setCursor(nextCursor);
+    },
+    [isInputMode, cursor, score, activeDuration, activeDots, triggerRejectedError]
+  );
+
+  const applyEventOverride = useCallback(
+    (eventId: string, dx: number, dy: number, accumulate = true) => {
+      const nextScore = historyRef.current.do(setOverride(eventId, { dx, dy }, accumulate));
+      setScore(nextScore);
+    },
+    []
+  );
+
+  const clearEventOverride = useCallback(
+    (eventId?: string) => {
+      const targetId = eventId ?? selectedEventId;
+      if (!targetId) return;
+      const nextScore = historyRef.current.do(clearOverride(targetId));
+      setScore(nextScore);
+    },
+    [selectedEventId]
+  );
+
   const enterRestAtCursor = useCallback(
     (errorMsg: string, noCursorMsg?: string) => {
       if (!isInputMode) return;
@@ -417,6 +491,10 @@ export function useEditor(initialScore?: Score) {
     rejectedError,
     triggerRejectedError,
     enterPitchAtCursor,
+    enterPitchDirect,
+    applyEventOverride,
+    clearEventOverride,
+    hasSelectedOverride: Boolean(selectedEventId && score.overrides[selectedEventId]),
     enterRestAtCursor,
     moveCursorDirection,
   };

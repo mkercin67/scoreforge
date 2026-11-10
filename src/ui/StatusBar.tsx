@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { BaseDurationType } from '../core/model';
+import { BaseDurationType, Pitch } from '../core/model';
 import { formatPitchName, useI18n } from './i18n';
 import { SelectedEventInfo } from './useEditor';
 
@@ -14,6 +14,8 @@ export interface StatusBarProps {
   activeDuration?: BaseDurationType;
   currentMeasureNumber?: number;
   rejectedMessage?: string | null;
+  hasOverride?: boolean;
+  hoverPitch?: Pitch | null;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -22,6 +24,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   activeDuration = 'quarter',
   currentMeasureNumber = 1,
   rejectedMessage = null,
+  hasOverride = false,
+  hoverPitch = null,
 }) => {
   const { t, language, noteNameStyle } = useI18n();
 
@@ -39,12 +43,16 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     // 2. Note Input Mode info: "Nota girişi · Dörtlük nota · Ölçü 2"
     if (isInputMode) {
       const durationText = t(`duration.${activeDuration}.note`);
+      const hoverText = hoverPitch
+        ? ` · ${formatPitchName(hoverPitch, noteNameStyle, language)}`
+        : '';
       return (
         <span style={{ color: '#1d4ed8', fontWeight: 600 }}>
           {t('status.inputMode', {
             duration: durationText,
             measure: currentMeasureNumber,
           })}
+          {hoverText}
         </span>
       );
     }
@@ -67,12 +75,29 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         .map((p) => formatPitchName(p, noteNameStyle, language))
         .join(', ');
       return (
-        <span>
-          {t('status.chordInfo', {
-            measure: measureNumber,
-            pitches: pitchesText,
-            duration: durationText,
-          })}
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <span>
+            {t('status.chordInfo', {
+              measure: measureNumber,
+              pitches: pitchesText,
+              duration: durationText,
+            })}
+          </span>
+          {hasOverride && (
+            <span
+              style={{
+                marginLeft: '0.6rem',
+                padding: '0.1rem 0.45rem',
+                fontSize: '0.75rem',
+                backgroundColor: '#e0e7ff',
+                color: '#3730a3',
+                borderRadius: '4px',
+                fontWeight: 600,
+              }}
+            >
+              {t('status.manuallyPositioned')}
+            </span>
+          )}
         </span>
       );
     }
@@ -80,12 +105,29 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     if (isNote && pitches.length > 0) {
       const pitchText = formatPitchName(pitches[0], noteNameStyle, language);
       return (
-        <span>
-          {t('status.noteInfo', {
-            measure: measureNumber,
-            pitch: pitchText,
-            duration: durationText,
-          })}
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <span>
+            {t('status.noteInfo', {
+              measure: measureNumber,
+              pitch: pitchText,
+              duration: durationText,
+            })}
+          </span>
+          {hasOverride && (
+            <span
+              style={{
+                marginLeft: '0.6rem',
+                padding: '0.1rem 0.45rem',
+                fontSize: '0.75rem',
+                backgroundColor: '#e0e7ff',
+                color: '#3730a3',
+                borderRadius: '4px',
+                fontWeight: 600,
+              }}
+            >
+              {t('status.manuallyPositioned')}
+            </span>
+          )}
         </span>
       );
     }

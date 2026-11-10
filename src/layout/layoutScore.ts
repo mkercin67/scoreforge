@@ -736,25 +736,33 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
     });
   }
 
-  // Apply visual overrides
+  // Apply visual overrides (both element-level and event-level overrides apply)
   for (const sys of systems) {
     for (const item of sys.items) {
-      const override = score.overrides[item.id];
-      if (override) {
-        if (override.dx !== undefined) {
-          item.x += override.dx;
-          if (item.x2 !== undefined) item.x2 += override.dx;
-        }
-        if (override.dy !== undefined) {
-          item.y += override.dy;
-          if (item.y2 !== undefined) item.y2 += override.dy;
-        }
-        if (override.scale !== undefined) {
-          item.scale = override.scale;
-        }
-        if (override.hidden !== undefined) {
-          item.hidden = override.hidden;
-        }
+      const itemOverride = score.overrides[item.id];
+      const evOverride =
+        item.eventId && item.eventId !== item.id ? score.overrides[item.eventId] : undefined;
+
+      const dx = (itemOverride?.dx ?? 0) + (evOverride?.dx ?? 0);
+      const dy = (itemOverride?.dy ?? 0) + (evOverride?.dy ?? 0);
+
+      if (dx !== 0) {
+        item.x += dx;
+        if (item.x2 !== undefined) item.x2 += dx;
+      }
+      if (dy !== 0) {
+        item.y += dy;
+        if (item.y2 !== undefined) item.y2 += dy;
+      }
+
+      const scale = itemOverride?.scale ?? evOverride?.scale;
+      if (scale !== undefined) {
+        item.scale = scale;
+      }
+
+      const hidden = itemOverride?.hidden ?? evOverride?.hidden;
+      if (hidden !== undefined) {
+        item.hidden = hidden;
       }
     }
   }
@@ -771,5 +779,6 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
     height: totalHeight,
     systems,
     items: allItems,
+    score,
   };
 }

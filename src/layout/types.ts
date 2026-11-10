@@ -6,6 +6,8 @@
  * representing the top line of the staff.
  */
 
+import { Score } from '../core/model';
+
 export type LayoutItemKind = 'glyph' | 'line' | 'text';
 
 /** A single positioned visual element. */
@@ -49,6 +51,7 @@ export interface LayoutResult {
   height: number;
   systems: LayoutSystem[];
   items: LayoutItem[];
+  score?: Score;
 }
 
 /** Options configuring layout dimensions and wrapping behavior. */

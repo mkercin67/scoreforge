@@ -275,9 +275,10 @@ export function setTimeSig(
  *
  * @param elementId - ID of the target element.
  * @param override - Override values, or undefined to clear the override.
+ * @param accumulate - When true, dx and dy are added to existing values.
  * @returns An executable Command.
  */
-export function setOverride(elementId: Id, override?: Override): Command {
+export function setOverride(elementId: Id, override?: Override, accumulate = false): Command {
   return {
     name: 'setOverride',
     apply(score: Score): Score {
@@ -285,14 +286,34 @@ export function setOverride(elementId: Id, override?: Override): Command {
         if (override === undefined) {
           delete draft.overrides[elementId];
         } else {
-          draft.overrides[elementId] = {
-            ...draft.overrides[elementId],
-            ...override,
-          };
+          const existing = draft.overrides[elementId];
+          if (accumulate && existing) {
+            draft.overrides[elementId] = {
+              ...existing,
+              ...override,
+              dx: (existing.dx ?? 0) + (override.dx ?? 0),
+              dy: (existing.dy ?? 0) + (override.dy ?? 0),
+            };
+          } else {
+            draft.overrides[elementId] = {
+              ...existing,
+              ...override,
+            };
+          }
         }
       });
     },
   };
+}
+
+/**
+ * Clears visual layout overrides for an element.
+ *
+ * @param elementId - ID of the target element.
+ * @returns An executable Command.
+ */
+export function clearOverride(elementId: Id): Command {
+  return setOverride(elementId, undefined);
 }
 
 /**

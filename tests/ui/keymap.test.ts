@@ -64,10 +64,47 @@ describe('keymap', () => {
     expect(mapKeyEvent({ code: 'KeyC', altKey: true }, true)).toBeNull();
   });
 
-  it('maps Digit0 to enter-rest when isInputMode is true; prompts hint when false', () => {
+  it('maps Digit0 to enter-rest when isInputMode is true; prompts hint when false; Ctrl+Digit0 to reset-override', () => {
     expect(mapKeyEvent({ code: 'Digit0' }, true)).toBe('enter-rest');
     expect(mapKeyEvent({ code: 'Digit0' }, false)).toBe('show-input-off-hint');
-    expect(mapKeyEvent({ code: 'Digit0', ctrlKey: true }, true)).toBeNull();
+    expect(mapKeyEvent({ code: 'Digit0', ctrlKey: true }, true)).toBe('reset-override');
+    expect(mapKeyEvent({ code: 'Digit0', metaKey: true }, false)).toBe('reset-override');
+  });
+
+  it('maps Alt+Arrow and Shift+Alt+Arrow to nudge-override', () => {
+    // 0.25 staff space nudge
+    expect(mapKeyEvent({ code: 'ArrowUp', altKey: true })).toEqual({
+      type: 'nudge-override',
+      dx: 0,
+      dy: -0.25,
+    });
+    expect(mapKeyEvent({ code: 'ArrowDown', altKey: true })).toEqual({
+      type: 'nudge-override',
+      dx: 0,
+      dy: 0.25,
+    });
+    expect(mapKeyEvent({ code: 'ArrowLeft', altKey: true })).toEqual({
+      type: 'nudge-override',
+      dx: -0.25,
+      dy: 0,
+    });
+    expect(mapKeyEvent({ code: 'ArrowRight', altKey: true })).toEqual({
+      type: 'nudge-override',
+      dx: 0.25,
+      dy: 0,
+    });
+
+    // 1.0 staff space nudge with Shift+Alt
+    expect(mapKeyEvent({ code: 'ArrowUp', altKey: true, shiftKey: true })).toEqual({
+      type: 'nudge-override',
+      dx: 0,
+      dy: -1.0,
+    });
+    expect(mapKeyEvent({ code: 'ArrowRight', altKey: true, shiftKey: true })).toEqual({
+      type: 'nudge-override',
+      dx: 1.0,
+      dy: 0,
+    });
   });
 
   it('maps Digit2..Digit7 to set-duration', () => {

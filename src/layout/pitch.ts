@@ -5,6 +5,7 @@
  */
 
 import { Clef, Pitch, PitchStep } from '../core/model';
+import { getKeySignatureAlter } from './keySignature';
 
 const STEP_INDEX: Record<PitchStep, number> = {
   C: 0,
@@ -15,6 +16,8 @@ const STEP_INDEX: Record<PitchStep, number> = {
   A: 5,
   B: 6,
 };
+
+const DIATONIC_STEPS: PitchStep[] = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
 
 /**
  * Calculates the diatonic step position of a pitch relative to the bottom line of the staff.
@@ -101,4 +104,42 @@ export function getLedgerLineYs(stepPos: number): number[] {
  */
 export function getStemDirection(stepPos: number): 'up' | 'down' {
   return stepPos >= 4 ? 'down' : 'up';
+}
+
+/**
+ * Converts a vertical position in staff spaces (ySpaces) to a diatonic Pitch.
+ *
+ * Diatonic staff positions:
+ * stepPos = Math.round((4 - ySpaces) * 2)
+ * Clamped to [-6, 14] (covering 3 ledger lines below and 3 ledger lines above staff).
+ *
+ * @param clef - Active clef (determines bottom line reference).
+ * @param ySpaces - Vertical offset in staff spaces from the top staff line (y=0).
+ * @param keySig - Key signature alter count (-7..+7), defaults to 0.
+ * @returns Pitch object with step, octave, and optional alter from keySig.
+ */
+export function yToStaffPosition(clef: Clef, ySpaces: number, keySig = 0): Pitch {
+  // 1. Convert y coordinate in staff spaces to stepPos
+  const rawStepPos = Math.round((4 - ySpaces) * 2);
+
+  // 2. Clamp to 3 steps beyond staff boundaries on each side (-6..14)
+  const clampedStepPos = Math.max(-6, Math.min(14, rawStepPos));
+
+  // 3. Determine bottom line diatonic reference
+  let bottomLineDiatonic = 30; // Treble: E4 (4 * 7 + 2 = 30)
+  if (clef.sign === 'G') {
+    bottomLineDiatonic = 30;
+  } else if (clef.sign === 'F') {
+    bottomLineDiatonic = 18; // Bass: G2 (2 * 7 + 4 = 18)
+  } else if (clef.sign === 'C') {
+    bottomLineDiatonic = 24; // Alto: F3 (3 * 7 + 3 = 24)
+  }
+
+  const pitchDiatonic = bottomLineDiatonic + clampedStepPos;
+  const octave = Math.floor(pitchDiatonic / 7);
+  const stepIdx = ((pitchDiatonic % 7) + 7) % 7;
+  const step = DIATONIC_STEPS[stepIdx];
+
+  const alter = getKeySignatureAlter(step, keySig);
+  return { step, alter, octave };
 }

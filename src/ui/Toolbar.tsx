@@ -12,6 +12,8 @@ export interface ToolbarProps {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  canResetOverride?: boolean;
+  onResetOverride?: () => void;
   onOpenNewScore: () => void;
   isInputMode: boolean;
   onToggleInputMode: () => void;
@@ -37,6 +39,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   canRedo,
   onUndo,
   onRedo,
+  canResetOverride = false,
+  onResetOverride,
   onOpenNewScore,
   isInputMode,
   onToggleInputMode,
@@ -146,6 +150,28 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           }}
         >
           ↷ {t('toolbar.redo')}
+        </button>
+        <button
+          type="button"
+          onClick={handleButtonClick(onResetOverride ?? (() => {}))}
+          onMouseDown={(e) => e.preventDefault()}
+          disabled={!canResetOverride}
+          title={`${t('toolbar.resetPosition')} (Ctrl+0)`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.25rem',
+            padding: '0.4rem 0.65rem',
+            fontSize: '0.85rem',
+            fontWeight: 500,
+            color: canResetOverride ? '#1e293b' : '#94a3b8',
+            backgroundColor: canResetOverride ? '#f1f5f9' : '#f8fafc',
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            cursor: canResetOverride ? 'pointer' : 'not-allowed',
+          }}
+        >
+          ⟲ {t('toolbar.resetPosition')}
         </button>
       </div>
 

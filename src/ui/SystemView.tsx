@@ -25,18 +25,33 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
     const fontSize = staffSpacePx * 4;
     const scale = staffSpacePx / (UNITS_PER_EM / 4);
 
-    // Separate staff lines from other lines so they can be merged into 1 path
-    const { staffLines, otherItems } = useMemo(() => {
+    // Separate staff lines, grouped event items, and standalone items
+    const { staffLines, eventGroups, standaloneItems } = useMemo(() => {
       const staffLines: LayoutItem[] = [];
-      const otherItems: LayoutItem[] = [];
+      const standaloneItems: LayoutItem[] = [];
+      const groupsMap = new Map<string, LayoutItem[]>();
+
       for (const item of system.items) {
         if (item.kind === 'line' && item.id.includes('staffline')) {
           staffLines.push(item);
+        } else if (item.eventId) {
+          let list = groupsMap.get(item.eventId);
+          if (!list) {
+            list = [];
+            groupsMap.set(item.eventId, list);
+          }
+          list.push(item);
         } else {
-          otherItems.push(item);
+          standaloneItems.push(item);
         }
       }
-      return { staffLines, otherItems };
+
+      const eventGroups = Array.from(groupsMap.entries()).map(([eventId, items]) => ({
+        eventId,
+        items,
+      }));
+
+      return { staffLines, eventGroups, standaloneItems };
     }, [system.items]);
 
     // Combine 5 staff lines into 1 SVG <path>
@@ -72,6 +87,71 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
       return boxes;
     }, [system.items]);
 
+    const renderItem = (item: LayoutItem) => {
+      if (item.hidden) return null;
+      const pxX = item.x * staffSpacePx;
+      const pxY = (system.y + item.y) * staffSpacePx;
+
+      if (item.kind === 'line') {
+        const pxX2 = (item.x2 ?? item.x) * staffSpacePx;
+        const pxY2 = (system.y + (item.y2 ?? item.y)) * staffSpacePx;
+        const strokeWidth = (item.thickness ?? 0.13) * staffSpacePx;
+        return (
+          <line
+            key={item.id}
+            data-id={item.id}
+            data-event-id={item.eventId}
+            x1={pxX}
+            y1={pxY}
+            x2={pxX2}
+            y2={pxY2}
+            stroke="currentColor"
+            strokeWidth={strokeWidth}
+            strokeLinecap="butt"
+          />
+        );
+      }
+
+      if (item.kind === 'glyph' && item.glyph) {
+        if (useTextFallback) {
+          return (
+            <text
+              key={item.id}
+              data-id={item.id}
+              data-event-id={item.eventId}
+              x={pxX}
+              y={pxY}
+              className="scoreforge-glyph notranslate"
+              style={{
+                fontFamily: 'Bravura, serif',
+                dominantBaseline: 'alphabetic',
+                textAnchor: 'start',
+              }}
+              dominantBaseline="alphabetic"
+              textAnchor="start"
+              fontSize={`${fontSize}px`}
+              fill="currentColor"
+            >
+              {getGlyphChar(item.glyph)}
+            </text>
+          );
+        }
+
+        return (
+          <use
+            key={item.id}
+            data-id={item.id}
+            data-event-id={item.eventId}
+            href={`#glyph-${item.glyph}`}
+            transform={`translate(${pxX}, ${pxY}) scale(${scale})`}
+            fill="currentColor"
+          />
+        );
+      }
+
+      return null;
+    };
+
     return (
       <g data-system-index={system.index} className="notranslate">
         {/* Merged staff lines: 1 path replaces 5 lines */}
@@ -85,71 +165,20 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
           />
         )}
 
-        {/* Regular lines and glyphs */}
-        {otherItems.map((item) => {
-          if (item.hidden) return null;
-          const pxX = item.x * staffSpacePx;
-          const pxY = (system.y + item.y) * staffSpacePx;
+        {/* Event groups: all items of an event grouped together for atomic manual positioning */}
+        {eventGroups.map((group) => (
+          <g
+            key={group.eventId}
+            data-event-id={group.eventId}
+            className="score-event-group notranslate"
+            style={{ cursor: 'grab' }}
+          >
+            {group.items.map(renderItem)}
+          </g>
+        ))}
 
-          if (item.kind === 'line') {
-            const pxX2 = (item.x2 ?? item.x) * staffSpacePx;
-            const pxY2 = (system.y + (item.y2 ?? item.y)) * staffSpacePx;
-            const strokeWidth = (item.thickness ?? 0.13) * staffSpacePx;
-            return (
-              <line
-                key={item.id}
-                data-id={item.id}
-                data-event-id={item.eventId}
-                x1={pxX}
-                y1={pxY}
-                x2={pxX2}
-                y2={pxY2}
-                stroke="currentColor"
-                strokeWidth={strokeWidth}
-                strokeLinecap="butt"
-              />
-            );
-          }
-
-          if (item.kind === 'glyph' && item.glyph) {
-            if (useTextFallback) {
-              return (
-                <text
-                  key={item.id}
-                  data-id={item.id}
-                  data-event-id={item.eventId}
-                  x={pxX}
-                  y={pxY}
-                  className="scoreforge-glyph notranslate"
-                  style={{
-                    fontFamily: 'Bravura, serif',
-                    dominantBaseline: 'alphabetic',
-                    textAnchor: 'start',
-                  }}
-                  dominantBaseline="alphabetic"
-                  textAnchor="start"
-                  fontSize={`${fontSize}px`}
-                  fill="currentColor"
-                >
-                  {getGlyphChar(item.glyph)}
-                </text>
-              );
-            }
-
-            return (
-              <use
-                key={item.id}
-                data-id={item.id}
-                data-event-id={item.eventId}
-                href={`#glyph-${item.glyph}`}
-                transform={`translate(${pxX}, ${pxY}) scale(${scale})`}
-                fill="currentColor"
-              />
-            );
-          }
-
-          return null;
-        })}
+        {/* Standalone lines and glyphs (barlines, system clefs, timesigs) */}
+        {standaloneItems.map(renderItem)}
 
         {/* ONE transparent hit rect per measure (lightweight X-based hit testing) */}
         {measureBoxes.map((m) => (
