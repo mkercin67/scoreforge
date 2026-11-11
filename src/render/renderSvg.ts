@@ -180,6 +180,29 @@ function renderItemToSvgElement(
   const pxX = item.x * staffSpacePx;
   const pxY = (sys.y + item.y) * staffSpacePx;
 
+  if (item.kind === 'beam' && item.points && item.points.length > 0) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('data-id', item.id);
+    if (item.beamGroupId) {
+      path.setAttribute('data-beam-group', item.beamGroupId);
+    }
+    if (item.eventIds && item.eventIds.length > 0) {
+      path.setAttribute('data-event-ids', item.eventIds.join(','));
+    }
+    if (item.level !== undefined) {
+      path.setAttribute('data-beam-level', item.level.toString());
+    }
+    path.setAttribute('class', 'scoreforge-beam');
+    const d =
+      item.points
+        .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x * staffSpacePx} ${(sys.y + p.y) * staffSpacePx}`)
+        .join(' ') + ' Z';
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'currentColor');
+    path.setAttribute('stroke', 'none');
+    return path;
+  }
+
   if (item.kind === 'line') {
     const line = document.createElementNS(SVG_NS, 'line');
     line.setAttribute('data-id', item.id);
@@ -319,7 +342,19 @@ export function renderSvgToString(
       const pxY = (sys.y + item.y) * staffSpacePx;
       const eventAttr = item.eventId ? ` data-event-id="${item.eventId}"` : '';
 
-      if (item.kind === 'line') {
+      if (item.kind === 'beam' && item.points && item.points.length > 0) {
+        const d =
+          item.points
+            .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x * staffSpacePx} ${(sys.y + p.y) * staffSpacePx}`)
+            .join(' ') + ' Z';
+        const bgAttr = item.beamGroupId ? ` data-beam-group="${item.beamGroupId}"` : '';
+        const evIdsAttr =
+          item.eventIds && item.eventIds.length > 0
+            ? ` data-event-ids="${item.eventIds.join(',')}"`
+            : '';
+        const lvlAttr = item.level !== undefined ? ` data-beam-level="${item.level}"` : '';
+        elementsXml += `    <path data-id="${item.id}"${bgAttr}${evIdsAttr}${lvlAttr} class="scoreforge-beam" d="${d}" fill="currentColor" stroke="none" />\n`;
+      } else if (item.kind === 'line') {
         const pxX2 = (item.x2 ?? item.x) * staffSpacePx;
         const pxY2 = (sys.y + (item.y2 ?? item.y)) * staffSpacePx;
         const strokeWidth = (item.thickness ?? 0.13) * staffSpacePx;

@@ -92,6 +92,26 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
       const pxX = item.x * staffSpacePx;
       const pxY = (system.y + item.y) * staffSpacePx;
 
+      if (item.kind === 'beam' && item.points && item.points.length > 0) {
+        const d =
+          item.points
+            .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x * staffSpacePx} ${(system.y + p.y) * staffSpacePx}`)
+            .join(' ') + ' Z';
+        return (
+          <path
+            key={item.id}
+            data-id={item.id}
+            data-beam-group={item.beamGroupId}
+            data-event-ids={item.eventIds?.join(',')}
+            data-beam-level={item.level}
+            className="scoreforge-beam"
+            d={d}
+            fill="currentColor"
+            stroke="none"
+          />
+        );
+      }
+
       if (item.kind === 'line') {
         const pxX2 = (item.x2 ?? item.x) * staffSpacePx;
         const pxY2 = (system.y + (item.y2 ?? item.y)) * staffSpacePx;

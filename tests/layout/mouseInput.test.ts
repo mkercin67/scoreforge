@@ -574,10 +574,12 @@ describe('Milestone 3c: Mouse Input & Manual Positioning', () => {
         pitches: [createPitch('E', 4, 0)],
         baseType: 'eighth',
       });
+      // Spacer quarter rest so nHigh and nLow remain separate unbeamed flagged notes
+      const rSpacer = createRest({ baseType: 'quarter' });
       // 3) Quarter rest in measure 1
       const rQuarter = createRest({ baseType: 'quarter' });
 
-      score.parts[0].staves[0].measures[m0] = { voices: [{ id: 'v1', events: [nHigh, nLow] }] };
+      score.parts[0].staves[0].measures[m0] = { voices: [{ id: 'v1', events: [nHigh, rSpacer, nLow] }] };
       score.parts[0].staves[0].measures[m1] = { voices: [{ id: 'v1', events: [rQuarter] }] };
 
       const layout = layoutScore(score, { width: 100 });

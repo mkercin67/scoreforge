@@ -79,6 +79,16 @@ export function getSystemMeasureBounds(system: LayoutSystem): SystemMeasureBound
 
 /** Bounding box helper for an individual layout item in staff spaces. */
 export function getItemRect(item: LayoutItem): { x1: number; x2: number; y1: number; y2: number } {
+  if (item.kind === 'beam' && item.points && item.points.length > 0) {
+    const xs = item.points.map((p) => p.x);
+    const ys = item.points.map((p) => p.y);
+    return {
+      x1: Math.min(...xs),
+      x2: Math.max(...xs),
+      y1: Math.min(...ys),
+      y2: Math.max(...ys),
+    };
+  }
   if (item.kind === 'line') {
     const x1 = Math.min(item.x, item.x2 ?? item.x);
     const x2 = Math.max(item.x, item.x2 ?? item.x);
@@ -157,8 +167,21 @@ export interface EventHitArea {
  */
 export function computeEventHitBoxes(system: LayoutSystem): EventHitArea[] {
   const byEvent = new Map<string, LayoutItem[]>();
+  const beamsByEvent = new Map<string, LayoutItem[]>();
   for (const item of system.items) {
-    if (!item.eventId || item.hidden) continue;
+    if (item.hidden) continue;
+    if (item.kind === 'beam' && item.eventIds && item.eventIds.length > 0) {
+      for (const evId of item.eventIds) {
+        let bl = beamsByEvent.get(evId);
+        if (!bl) {
+          bl = [];
+          beamsByEvent.set(evId, bl);
+        }
+        bl.push(item);
+      }
+      continue;
+    }
+    if (!item.eventId) continue;
     let list = byEvent.get(item.eventId);
     if (!list) {
       list = [];
@@ -181,6 +204,31 @@ export function computeEventHitBoxes(system: LayoutSystem): EventHitArea[] {
       if (r.x2 > maxX) maxX = r.x2;
       if (r.y1 < minY) minY = r.y1;
       if (r.y2 > maxY) maxY = r.y2;
+    }
+
+    // Include local beam segment Y/X bounds directly above/below the beamed event
+    const eventBeams = beamsByEvent.get(eventId);
+    if (eventBeams && Number.isFinite(minX) && Number.isFinite(maxX)) {
+      const sliceX1 = minX;
+      const sliceX2 = maxX;
+      for (const b of eventBeams) {
+        if (!b.points || b.points.length < 4) continue;
+        const p0 = b.points[0];
+        const p1 = b.points[1];
+        const p2 = b.points[2];
+        const p3 = b.points[3];
+        const bMinX = Math.min(p0.x, p1.x);
+        const bMaxX = Math.max(p0.x, p1.x);
+        const ovX1 = Math.max(sliceX1, bMinX);
+        const ovX2 = Math.min(sliceX2, bMaxX);
+        if (ovX2 >= ovX1) {
+          const dxSpan = p1.x - p0.x;
+          const interp = (x: number, yA: number, yB: number) =>
+            Math.abs(dxSpan) < 1e-12 ? yA : yA + ((yB - yA) * (x - p0.x)) / dxSpan;
+          minY = Math.min(minY, interp(ovX1, p0.y, p1.y), interp(ovX2, p0.y, p1.y), interp(ovX1, p3.y, p2.y), interp(ovX2, p3.y, p2.y));
+          maxY = Math.max(maxY, interp(ovX1, p0.y, p1.y), interp(ovX2, p0.y, p1.y), interp(ovX1, p3.y, p2.y), interp(ovX2, p3.y, p2.y));
+        }
+      }
     }
 
     if (isRest) {

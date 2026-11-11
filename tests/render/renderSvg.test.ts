@@ -3,6 +3,7 @@ import { createMeasure, createNote, createPart, createPitch, createScore } from 
 import { layoutScore } from '../../src/layout/layoutScore';
 import { renderSvgToString } from '../../src/render/renderSvg';
 import { buildSampleScore } from '../../src/ui/Demo';
+import { buildBeamDemoScore } from '../../src/ui/beamDemoScore';
 
 describe('renderSvg', () => {
   it('renders SVG string containing data-id attributes and staff lines', () => {
@@ -109,5 +110,24 @@ describe('renderSvg', () => {
     );
 
     expect(normalized).toMatchSnapshot();
+  });
+
+  it('renderSvgToString snapshot of the M3d beam demo score (treble & bass)', () => {
+    const normalize = (s: string) =>
+      s.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'STATIC-ID');
+
+    const trebleSvg = renderSvgToString(layoutScore(buildBeamDemoScore('G'), { width: 82 }), {
+      staffSpacePx: 10,
+    });
+    expect(trebleSvg).not.toContain('<text');
+    expect(trebleSvg).toContain('class="scoreforge-beam"');
+    expect(normalize(trebleSvg)).toMatchSnapshot();
+
+    const bassSvg = renderSvgToString(layoutScore(buildBeamDemoScore('F'), { width: 82 }), {
+      staffSpacePx: 10,
+    });
+    expect(bassSvg).not.toContain('<text');
+    expect(bassSvg).toContain('class="scoreforge-beam"');
+    expect(normalize(bassSvg)).toMatchSnapshot();
   });
 });

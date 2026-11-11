@@ -7,6 +7,7 @@
  */
 
 import {
+  BaseDurationType,
   Clef,
   MeasureDef,
   NoteEvent,
@@ -18,6 +19,8 @@ import {
 } from '../core/model';
 import { PPQ } from '../core/time';
 import { MeasureAccidentalTracker } from './accidentals';
+import { computeBeamGroupGeometry, getBeamGroupStemDirection, BeamStemInput } from './beamLayout';
+import { groupBeams } from './beams';
 import { getKeySignatureAccidentals, getKeySignatureAlter } from './keySignature';
 import { getLedgerLineYs, getStemDirection, pitchToStaffPosition, staffPositionToY } from './pitch';
 import { clampOverrideOffset, getSystemMeasureBounds, SystemMeasureBounds } from './mouse';
@@ -27,6 +30,7 @@ import {
   LayoutResult,
   LayoutStaff,
   LayoutSystem,
+  StemDirection,
 } from './types';
 
 // Standard engraving dimensions in staff spaces
@@ -43,6 +47,10 @@ export const THICK_BARLINE_THICKNESS = 0.5;
  * Returns estimated layout width for a single item in staff spaces.
  */
 export function getItemWidth(item: LayoutItem): number {
+  if (item.kind === 'beam' && item.points && item.points.length > 0) {
+    const maxX = Math.max(...item.points.map((p) => p.x));
+    return Math.max(0, maxX - item.x);
+  }
   if (item.kind === 'line') {
     if (item.x2 !== undefined) {
       return Math.max(0, item.x2 - item.x);
@@ -69,11 +77,24 @@ interface MeasureItemEntry {
   ledgerNoteRelativeX?: number;
 }
 
+/** Metadata captured per measure for a beam group, independent of system stretching/overrides. */
+export interface MeasureBeamGroupMeta {
+  beamGroupId: string;
+  stemDir: StemDirection;
+  events: Array<{
+    eventId: string;
+    baseType: BaseDurationType;
+    stepPositions: number[];
+    startTick: number;
+  }>;
+}
+
 export interface MeasureLayoutChunk {
   measureDefId: string;
   items: MeasureItemEntry[];
   naturalWidth: number;
   barlineItemIndex: number;
+  beamGroups: MeasureBeamGroupMeta[];
 }
 
 export const measureLayoutCacheStats = {
@@ -148,6 +169,47 @@ export function layoutSingleMeasure(
   const tracker = new MeasureAccidentalTracker(mDef.keySig);
   const measureItems: MeasureItemEntry[] = [];
   let relX = 0;
+
+  // Precompute beam groupings per measure so uniform stem directions and flag omission stay cached per measure
+  const beamGroupsRaw = groupBeams(events, mDef.timeSig);
+  const noteStepsMap = new Map<string, number[]>();
+  const startTickMap = new Map<string, number>();
+  let runningTick = 0;
+  for (const ev of events) {
+    startTickMap.set(ev.id, runningTick);
+    runningTick += ev.duration;
+    if (ev.kind === 'note') {
+      const sortedSteps = [...ev.pitches]
+        .map((p) => pitchToStaffPosition(p, clef))
+        .sort((a, b) => a - b);
+      noteStepsMap.set(ev.id, sortedSteps);
+    }
+  }
+
+  const eventToBeamDir = new Map<string, StemDirection>();
+  const beamGroupsMeta: MeasureBeamGroupMeta[] = [];
+  for (let gIdx = 0; gIdx < beamGroupsRaw.length; gIdx++) {
+    const g = beamGroupsRaw[gIdx];
+    const groupSteps = g.eventIds.map((id) => noteStepsMap.get(id) ?? []);
+    const groupStemDir = getBeamGroupStemDirection(groupSteps);
+    const beamGroupId = `beam-${mDef.id}-${gIdx}`;
+    for (const id of g.eventIds) {
+      eventToBeamDir.set(id, groupStemDir);
+    }
+    beamGroupsMeta.push({
+      beamGroupId,
+      stemDir: groupStemDir,
+      events: g.eventIds.map((id) => {
+        const evObj = events.find((e) => e.id === id)!;
+        return {
+          eventId: id,
+          baseType: evObj.baseType,
+          stepPositions: noteStepsMap.get(id) ?? [],
+          startTick: startTickMap.get(id) ?? 0,
+        };
+      }),
+    });
+  }
 
   // Time signature in first measure
   if (isFirstMeasure) {
@@ -256,7 +318,9 @@ export function layoutSingleMeasure(
       const stepPositions = sortedPitches.map((p) => pitchToStaffPosition(p, clef));
       const meanStepPos =
         stepPositions.reduce((sum, sp) => sum + sp, 0) / (stepPositions.length || 1);
-      const stemDir = getStemDirection(meanStepPos);
+      const beamStemDir = eventToBeamDir.get(ev.id);
+      const stemDir = beamStemDir ?? getStemDirection(meanStepPos);
+      const isBeamed = beamStemDir !== undefined;
 
       let noteheadGlyph = 'noteheadBlack';
       if (ev.baseType === 'whole') {
@@ -384,7 +448,7 @@ export function layoutSingleMeasure(
           },
         });
 
-        if (ev.baseType === 'eighth' || ev.baseType === '16th' || ev.baseType === '32nd') {
+        if (!isBeamed && (ev.baseType === 'eighth' || ev.baseType === '16th' || ev.baseType === '32nd')) {
           let flagGlyph = '';
           if (ev.baseType === 'eighth') {
             flagGlyph = stemDir === 'up' ? 'flag8thUp' : 'flag8thDown';
@@ -461,6 +525,7 @@ export function layoutSingleMeasure(
     items: measureItems,
     naturalWidth: relX,
     barlineItemIndex,
+    beamGroups: beamGroupsMeta,
   };
 
   if (staffMeasure) {
@@ -862,6 +927,71 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
       }
       if (itemOverride.scale !== undefined) item.scale = itemOverride.scale;
       if (itemOverride.hidden !== undefined) item.hidden = itemOverride.hidden;
+    }
+  }
+
+  // Compute system-layer beam polygons from final stretched & overridden stems
+  for (let sIdx = 0; sIdx < systems.length; sIdx++) {
+    const sys = systems[sIdx];
+    const plan = systemPlans[sIdx];
+    if (!plan) continue;
+
+    const stemByEventId = new Map<string, LayoutItem>();
+    const noteByEventId = new Map<string, LayoutItem>();
+    for (const item of sys.items) {
+      if (item.eventId && item.id === `${item.eventId}-stem`) {
+        stemByEventId.set(item.eventId, item);
+      } else if (item.eventId && item.id === item.eventId) {
+        noteByEventId.set(item.eventId, item);
+      }
+    }
+
+    for (const chunk of plan.measures) {
+      for (const bg of chunk.beamGroups) {
+        const stemInputs: BeamStemInput[] = [];
+        const stemItemsToUpdate: Array<{ eventId: string; item: LayoutItem }> = [];
+
+        for (const evMeta of bg.events) {
+          const stemItem = stemByEventId.get(evMeta.eventId);
+          if (!stemItem || stemItem.hidden) continue;
+
+          const noteItem = noteByEventId.get(evMeta.eventId);
+          const lowestStep = evMeta.stepPositions[0] ?? 0;
+          const highestStep = evMeta.stepPositions[evMeta.stepPositions.length - 1] ?? 0;
+          const beamSideStep = bg.stemDir === 'up' ? highestStep : lowestStep;
+          const beamSideNoteY = staffPositionToY(beamSideStep);
+          const naturalStemEndY =
+            beamSideNoteY + (bg.stemDir === 'up' ? -STEM_LENGTH : STEM_LENGTH);
+
+          stemInputs.push({
+            eventId: evMeta.eventId,
+            baseType: evMeta.baseType,
+            stepPositions: evMeta.stepPositions,
+            noteX: noteItem ? noteItem.x : stemItem.x,
+            stemX: stemItem.x,
+            stemStartY: stemItem.y,
+            beamSideNoteY,
+            naturalStemEndY,
+            startTick: evMeta.startTick,
+          });
+          stemItemsToUpdate.push({ eventId: evMeta.eventId, item: stemItem });
+        }
+
+        if (stemInputs.length < 2) continue;
+
+        const geom = computeBeamGroupGeometry(bg.beamGroupId, stemInputs, bg.stemDir);
+
+        for (const { eventId, item } of stemItemsToUpdate) {
+          if (geom.stemEndYs[eventId] !== undefined) {
+            item.y2 = geom.stemEndYs[eventId];
+          }
+        }
+
+        sys.items.push(...geom.beamItems);
+        if (sys.staves[0] && sys.staves[0].items !== sys.items) {
+          sys.staves[0].items.push(...geom.beamItems);
+        }
+      }
     }
   }
 

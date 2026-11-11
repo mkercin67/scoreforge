@@ -8,7 +8,10 @@
 
 import { Score } from '../core/model';
 
-export type LayoutItemKind = 'glyph' | 'line' | 'text';
+export type LayoutItemKind = 'glyph' | 'line' | 'text' | 'beam';
+
+/** Uniform stem direction for notes, chords, and beam groups. */
+export type StemDirection = 'up' | 'down';
 
 /** A single positioned visual element. */
 export interface LayoutItem {
@@ -25,6 +28,14 @@ export interface LayoutItem {
   width?: number;
   scale?: number;
   hidden?: boolean;
+  /** Polygon vertices (clockwise in staff spaces) for 'beam' items. */
+  points?: Array<{ x: number; y: number }>;
+  /** Beam level: 1 = primary, 2 = 16th secondary/stub, 3 = 32nd tertiary/stub. */
+  level?: number;
+  /** Beam group identifier attached to beam items (`data-beam-group`). */
+  beamGroupId?: string;
+  /** Ordered event IDs belonging to this beam item (`data-event-ids`). */
+  eventIds?: string[];
 }
 
 /** Positioned staff container within a system. */

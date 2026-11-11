@@ -96,8 +96,9 @@ export function getGlyphBBox(name: string): BBox | undefined {
  * Returns an engraving default measurement from Bravura metadata in staff spaces.
  *
  * @param key - Default setting name (e.g. 'staffLineThickness', 'stemThickness').
+ * @param fallback - Optional fallback value if the key is absent from metadata.
  * @returns Value in staff spaces or fallback default.
  */
-export function getEngravingDefault(key: string): number {
-  return engravingDefaults[key] ?? 0.16;
+export function getEngravingDefault(key: string, fallback: number = 0.16): number {
+  return engravingDefaults[key] ?? fallback;
 }

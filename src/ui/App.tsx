@@ -14,6 +14,7 @@ import { Diagnostics, PerfSample } from './Diagnostics';
 import { I18nProvider, useI18n } from './i18n';
 import { EditorMode, mapKeyEvent } from './keymap';
 import { NewScoreConfig, NewScoreModal } from './NewScoreModal';
+import { buildBeamDemoScore } from './beamDemoScore';
 import { ScoreView } from './ScoreView';
 import { StatusBar } from './StatusBar';
 import { Toolbar } from './Toolbar';
@@ -137,6 +138,15 @@ const EditorShell: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const stateParam = params.get('state');
     if (!stateParam) return;
+
+    if (stateParam === 'm3d_demo' || stateParam === 'm3d_bass') {
+      const m3dScore = buildBeamDemoScore(stateParam === 'm3d_bass' ? 'F' : 'G');
+      resetScore(m3dScore);
+      setMode('select');
+      setActiveDuration('eighth');
+      setActiveDots(0);
+      return;
+    }
 
     // Milestone 3b Verification States
     if (
