@@ -165,22 +165,7 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
           />
         )}
 
-        {/* Event groups: all items of an event grouped together for atomic manual positioning */}
-        {eventGroups.map((group) => (
-          <g
-            key={group.eventId}
-            data-event-id={group.eventId}
-            className="score-event-group notranslate"
-            style={{ cursor: 'grab' }}
-          >
-            {group.items.map(renderItem)}
-          </g>
-        ))}
-
-        {/* Standalone lines and glyphs (barlines, system clefs, timesigs) */}
-        {standaloneItems.map(renderItem)}
-
-        {/* ONE transparent hit rect per measure (lightweight X-based hit testing) */}
+        {/* Background hit rects per measure (rendered behind notes so notes receive pointer events directly) */}
         {measureBoxes.map((m) => (
           <rect
             key={`measure-hit-${m.measureId}`}
@@ -197,6 +182,21 @@ export const SystemView: React.FC<SystemViewProps> = React.memo(
             style={{ cursor: 'pointer', fill: 'transparent', stroke: 'none' }}
           />
         ))}
+
+        {/* Event groups: all items of an event grouped together for atomic manual positioning */}
+        {eventGroups.map((group) => (
+          <g
+            key={group.eventId}
+            data-event-id={group.eventId}
+            className="score-event-group notranslate"
+            style={{ cursor: 'grab' }}
+          >
+            {group.items.map(renderItem)}
+          </g>
+        ))}
+
+        {/* Standalone lines and glyphs (barlines, system clefs, timesigs) */}
+        {standaloneItems.map(renderItem)}
       </g>
     );
   },

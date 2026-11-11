@@ -74,6 +74,11 @@ export function transposeSemitone(pitch: Pitch, direction: 'up' | 'down'): Pitch
   const currentMidi = 12 * (pitch.octave + 1) + STEP_SEMITONES[pitch.step] + pitch.alter;
   const targetMidi = direction === 'up' ? currentMidi + 1 : currentMidi - 1;
 
+  // Standard piano pitch range limit: MIDI 21 (A0) to MIDI 108 (C8)
+  if (targetMidi < 21 || targetMidi > 108) {
+    return { ...pitch };
+  }
+
   const targetOctave = Math.floor(targetMidi / 12) - 1;
   const pitchClass = ((targetMidi % 12) + 12) % 12;
 
@@ -91,12 +96,21 @@ export function transposeSemitone(pitch: Pitch, direction: 'up' | 'down'): Pitch
  * Transposes a pitch by a number of octaves.
  *
  * Preserves the diatonic step and alteration, altering only the octave integer.
+ * Clamps to standard piano pitch range (MIDI 21 to 108).
  *
  * @param pitch - The source pitch.
  * @param octaves - Positive or negative number of octaves to transpose.
  * @returns New transposed Pitch instance.
  */
 export function transposeOctave(pitch: Pitch, octaves: number): Pitch {
+  const currentMidi = 12 * (pitch.octave + 1) + STEP_SEMITONES[pitch.step] + pitch.alter;
+  const targetMidi = currentMidi + octaves * 12;
+
+  // Standard piano pitch range limit: MIDI 21 (A0) to MIDI 108 (C8)
+  if (targetMidi < 21 || targetMidi > 108) {
+    return { ...pitch };
+  }
+
   return {
     ...pitch,
     octave: pitch.octave + octaves,

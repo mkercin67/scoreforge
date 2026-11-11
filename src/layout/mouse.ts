@@ -8,6 +8,18 @@ import { LayoutResult } from './types';
 import { Score } from '../core/model';
 
 /**
+ * Checks if a pointer movement exceeds the drag initiation threshold (default 4px).
+ *
+ * @param dxPx - Horizontal displacement in pixels.
+ * @param dyPx - Vertical displacement in pixels.
+ * @param thresholdPx - Distance threshold in pixels (defaults to 4).
+ * @returns True if Euclidean distance >= thresholdPx.
+ */
+export function isDragPastThreshold(dxPx: number, dyPx: number, thresholdPx = 4): boolean {
+  return Math.hypot(dxPx, dyPx) >= thresholdPx;
+}
+
+/**
  * Snaps a drag offset in staff spaces to 0.25 space increments.
  *
  * @param offsetSpaces - Raw offset in staff spaces.

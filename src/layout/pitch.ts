@@ -111,7 +111,7 @@ export function getStemDirection(stepPos: number): 'up' | 'down' {
  *
  * Diatonic staff positions:
  * stepPos = Math.round((4 - ySpaces) * 2)
- * Clamped to [-6, 14] (covering 3 ledger lines below and 3 ledger lines above staff).
+ * Clamped to [-3, 11] (at most 3 diatonic steps beyond staff boundaries [0, 8]).
  *
  * @param clef - Active clef (determines bottom line reference).
  * @param ySpaces - Vertical offset in staff spaces from the top staff line (y=0).
@@ -122,8 +122,10 @@ export function yToStaffPosition(clef: Clef, ySpaces: number, keySig = 0): Pitch
   // 1. Convert y coordinate in staff spaces to stepPos
   const rawStepPos = Math.round((4 - ySpaces) * 2);
 
-  // 2. Clamp to 3 steps beyond staff boundaries on each side (-6..14)
-  const clampedStepPos = Math.max(-6, Math.min(14, rawStepPos));
+  // 2. Clamp to at most 3 diatonic steps beyond staff boundaries on each side:
+  // Bottom line = 0 -> min stepPos = -3
+  // Top line = 8    -> max stepPos = 11
+  const clampedStepPos = Math.max(-3, Math.min(11, rawStepPos));
 
   // 3. Determine bottom line diatonic reference
   let bottomLineDiatonic = 30; // Treble: E4 (4 * 7 + 2 = 30)

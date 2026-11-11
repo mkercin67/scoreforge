@@ -391,6 +391,12 @@ const EditorShell: React.FC = () => {
               recordSample('Ctrl+ArrowDown');
             }
             break;
+          case 'reset-override':
+            if (selectedEventId) {
+              clearEventOverride(selectedEventId);
+              recordSample('Ctrl+0');
+            }
+            break;
           case 'convert-to-rest':
             if (selectedEventId) {
               executeCommand(convertToRest(selectedEventId));
@@ -415,6 +421,11 @@ const EditorShell: React.FC = () => {
         } else if (action.type === 'set-duration') {
           setActiveDuration(action.baseType);
           setIsRestSelected(false);
+        } else if (action.type === 'nudge-override') {
+          if (selectedEventId) {
+            applyEventOverride(selectedEventId, action.dx, action.dy);
+            recordSample('Alt+Arrow');
+          }
         }
       }
     };
@@ -437,6 +448,8 @@ const EditorShell: React.FC = () => {
     toggleDot,
     setActiveDuration,
     setIsRestSelected,
+    applyEventOverride,
+    clearEventOverride,
     t,
   ]);
 

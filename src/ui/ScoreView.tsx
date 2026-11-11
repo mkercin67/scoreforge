@@ -19,7 +19,7 @@ import { BaseDurationType, Pitch, Score } from '../core/model';
 import { computeCursorPosition } from '../layout/cursor';
 import { layoutScore } from '../layout/layoutScore';
 import { yToStaffPosition, pitchToStaffPosition, staffPositionToY, getLedgerLineYs } from '../layout/pitch';
-import { xToCursor, snapDragOffset, applyAxisLock } from '../layout/mouse';
+import { xToCursor, snapDragOffset, applyAxisLock, isDragPastThreshold } from '../layout/mouse';
 import { ScoreCursor } from '../core/input';
 import { useI18n } from './i18n';
 import { SystemView } from './SystemView';
@@ -209,9 +209,74 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
         dragStateRef.current = null;
       }
     };
+
+    const handleWindowPointerMove = (e: PointerEvent) => {
+      if (!dragStateRef.current) return;
+      const deltaPxX = e.clientX - dragStateRef.current.startX;
+      const deltaPxY = e.clientY - dragStateRef.current.startY;
+
+      if (!dragStateRef.current.isDragging && isDragPastThreshold(deltaPxX, deltaPxY, 4)) {
+        dragStateRef.current.isDragging = true;
+        hasDraggedRef.current = true;
+        onSelectEvent(dragStateRef.current.eventId);
+      }
+
+      if (dragStateRef.current.isDragging) {
+        const rawDx = deltaPxX / staffSpacePx;
+        const rawDy = deltaPxY / staffSpacePx;
+        const locked = applyAxisLock(rawDx, rawDy, e.shiftKey);
+        const snappedDx = snapDragOffset(locked.dx, e.altKey);
+        const snappedDy = snapDragOffset(locked.dy, e.altKey);
+        dragStateRef.current.dx = snappedDx;
+        dragStateRef.current.dy = snappedDy;
+
+        if (!dragRafIdRef.current) {
+          dragRafIdRef.current = requestAnimationFrame(() => {
+            dragRafIdRef.current = null;
+            if (!dragStateRef.current?.isDragging) return;
+            const groupEl = svgRef.current?.querySelector(
+              `g[data-event-id="${dragStateRef.current.eventId}"]`
+            );
+            if (groupEl) {
+              const tx = dragStateRef.current.dx * staffSpacePx;
+              const ty = dragStateRef.current.dy * staffSpacePx;
+              groupEl.setAttribute('transform', `translate(${tx}, ${ty})`);
+            }
+          });
+        }
+      }
+    };
+
+    const handleWindowPointerUp = () => {
+      if (dragRafIdRef.current) {
+        cancelAnimationFrame(dragRafIdRef.current);
+        dragRafIdRef.current = null;
+      }
+
+      if (dragStateRef.current?.isDragging) {
+        const { eventId, dx, dy } = dragStateRef.current;
+        const groupEl = svgRef.current?.querySelector(`g[data-event-id="${eventId}"]`);
+        if (groupEl) {
+          groupEl.removeAttribute('transform');
+        }
+
+        if (dx !== 0 || dy !== 0) {
+          onApplyOverride?.(eventId, dx, dy, true);
+        }
+      }
+
+      dragStateRef.current = null;
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    window.addEventListener('pointermove', handleWindowPointerMove);
+    window.addEventListener('pointerup', handleWindowPointerUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('pointermove', handleWindowPointerMove);
+      window.removeEventListener('pointerup', handleWindowPointerUp);
+    };
+  }, [staffSpacePx, onSelectEvent, onApplyOverride]);
 
   const syncCursorToEvent = (eventId: string) => {
     if (!onSelectMeasure) return;
@@ -263,14 +328,6 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
     setGhostNote(null);
     lastHoverPitchRef.current = null;
     onHoverPitch?.(null);
-
-    if (dragStateRef.current?.isDragging) {
-      const groupEl = svgRef.current?.querySelector(
-        `g[data-event-id="${dragStateRef.current.eventId}"]`
-      );
-      if (groupEl) groupEl.removeAttribute('transform');
-      dragStateRef.current = null;
-    }
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -298,9 +355,8 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
     if (dragStateRef.current) {
       const deltaPxX = e.clientX - dragStateRef.current.startX;
       const deltaPxY = e.clientY - dragStateRef.current.startY;
-      const dist = Math.hypot(deltaPxX, deltaPxY);
 
-      if (!dragStateRef.current.isDragging && dist >= 4) {
+      if (!dragStateRef.current.isDragging && isDragPastThreshold(deltaPxX, deltaPxY, 4)) {
         dragStateRef.current.isDragging = true;
         hasDraggedRef.current = true;
         onSelectEvent(dragStateRef.current.eventId);
@@ -336,15 +392,27 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
 
     // 2. Ghost note tracking in Note Input Mode (uses cached rect, NO getBoundingClientRect)
     if (isInputMode) {
+      if (containerRectRef.current.width === 0 && svgRef.current) {
+        const rect = svgRef.current.getBoundingClientRect();
+        containerRectRef.current = {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        };
+      }
+
       const relX = (e.clientX - containerRectRef.current.left) / staffSpacePx;
       const relY = (e.clientY - containerRectRef.current.top) / staffSpacePx;
 
-      // Identify target system
+      // Identify closest system by staff center (sys.y + 2)
       let targetSys = layout.systems[0];
+      let minDist = Infinity;
       for (const sys of layout.systems) {
-        if (relY >= sys.y - 4 && relY <= sys.y + 10) {
+        const dist = Math.abs(relY - (sys.y + 2));
+        if (dist < minDist) {
+          minDist = dist;
           targetSys = sys;
-          break;
         }
       }
 
@@ -467,10 +535,12 @@ export const ScoreView: React.FC<ScoreViewProps> = ({
         const relY = (e.clientY - containerRectRef.current.top) / staffSpacePx;
 
         let targetSys = layout.systems[0];
+        let minDist = Infinity;
         for (const sys of layout.systems) {
-          if (relY >= sys.y - 4 && relY <= sys.y + 10) {
+          const dist = Math.abs(relY - (sys.y + 2));
+          if (dist < minDist) {
+            minDist = dist;
             targetSys = sys;
-            break;
           }
         }
 
