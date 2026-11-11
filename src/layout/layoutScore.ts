@@ -792,12 +792,12 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
 
       if (evOverride && (rawDx !== 0 || (isRest && rawDy !== 0))) {
         if (mBounds) {
-          const clamped = clampOverrideOffset(items, mBounds, rawDx, rawDy, isRest, 0);
+          const clamped = clampOverrideOffset(items, mBounds, rawDx, rawDy, isRest, 0, 0);
           effectiveDx = clamped.dx;
           effectiveDy = clamped.dy;
         } else {
-          effectiveDx = Math.max(-4, Math.min(4, rawDx));
-          effectiveDy = isRest ? Math.max(-6, Math.min(6, rawDy)) : 0;
+          effectiveDx = rawDx;
+          effectiveDy = isRest ? rawDy : 0;
         }
       }
 
@@ -810,11 +810,11 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
         const itemOverride = score.overrides[item.id];
         const itemExtraDx =
           itemOverride && item.id !== eventId
-            ? Math.max(-4, Math.min(4, itemOverride.dx ?? 0))
+            ? itemOverride.dx ?? 0
             : 0;
         const itemExtraDy =
           itemOverride && item.id !== eventId && isRest
-            ? Math.max(-6, Math.min(6, itemOverride.dy ?? 0))
+            ? itemOverride.dy ?? 0
             : 0;
 
         const totalDx = effectiveDx + itemExtraDx;
@@ -849,8 +849,8 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
 
       const rawDx = itemOverride.dx ?? 0;
       const rawDy = itemOverride.dy ?? 0;
-      const clampedDx = Math.max(-4, Math.min(4, rawDx));
-      const clampedDy = Math.max(-6, Math.min(6, rawDy));
+      const clampedDx = rawDx;
+      const clampedDy = rawDy;
 
       if (clampedDx !== 0) {
         item.x += clampedDx;

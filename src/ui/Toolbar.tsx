@@ -1,11 +1,12 @@
 /**
- * Main application toolbar containing score management, note input mode controls,
- * duration palette, zoom selector, and localization controls.
+ * Main application toolbar containing score management, explicit 3-mode segmented control,
+ * duration palette, position reset actions, zoom selector, and localization controls.
  */
 
 import React from 'react';
 import { BaseDurationType } from '../core/model';
 import { Language, NoteNameStyle, useI18n } from './i18n';
+import { EditorMode } from './keymap';
 
 export interface ToolbarProps {
   canUndo: boolean;
@@ -17,8 +18,8 @@ export interface ToolbarProps {
   canResetAllOverrides?: boolean;
   onResetAllOverrides?: () => void;
   onOpenNewScore: () => void;
-  isInputMode: boolean;
-  onToggleInputMode: () => void;
+  mode: EditorMode;
+  onChangeMode: (mode: EditorMode) => void;
   activeDuration: BaseDurationType;
   onChangeDuration: (d: BaseDurationType) => void;
   activeDots: number;
@@ -36,6 +37,12 @@ const DURATIONS: { type: BaseDurationType; label: string; shortcut: string; icon
   { type: '32nd', label: 'palette.duration.32nd', shortcut: '2', icon: '𝅘𝅥𝅰' },
 ];
 
+const MODES: { id: EditorMode; labelKey: string; shortcut: string }[] = [
+  { id: 'select', labelKey: 'mode.select', shortcut: 'V' },
+  { id: 'input', labelKey: 'mode.input', shortcut: 'N' },
+  { id: 'position', labelKey: 'mode.position', shortcut: 'P' },
+];
+
 export const Toolbar: React.FC<ToolbarProps> = ({
   canUndo,
   canRedo,
@@ -46,8 +53,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   canResetAllOverrides = false,
   onResetAllOverrides,
   onOpenNewScore,
-  isInputMode,
-  onToggleInputMode,
+  mode,
+  onChangeMode,
   activeDuration,
   onChangeDuration,
   activeDots,
@@ -77,8 +84,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         gap: '0.75rem',
       }}
     >
-      {/* Left section: App Title, New, Undo, Redo */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+      {/* Left section: App Title, New, Undo, Redo, and Position-only reset buttons */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
         <h1
           style={{
             fontSize: '1.2rem',
@@ -155,77 +162,103 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         >
           ↷ {t('toolbar.redo')}
         </button>
-        <button
-          type="button"
-          onClick={handleButtonClick(onResetOverride ?? (() => {}))}
-          onMouseDown={(e) => e.preventDefault()}
-          disabled={!canResetOverride}
-          title={`${t('toolbar.resetPosition')} (Ctrl+0)`}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.25rem',
-            padding: '0.4rem 0.65rem',
-            fontSize: '0.85rem',
-            fontWeight: 500,
-            color: canResetOverride ? '#1e293b' : '#94a3b8',
-            backgroundColor: canResetOverride ? '#f1f5f9' : '#f8fafc',
-            border: '1px solid #cbd5e1',
-            borderRadius: '6px',
-            cursor: canResetOverride ? 'pointer' : 'not-allowed',
-          }}
-        >
-          ⟲ {t('toolbar.resetPosition')}
-        </button>
-        <button
-          type="button"
-          onClick={handleButtonClick(onResetAllOverrides ?? (() => {}))}
-          onMouseDown={(e) => e.preventDefault()}
-          disabled={!canResetAllOverrides}
-          title={t('toolbar.resetAllPositions')}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.25rem',
-            padding: '0.4rem 0.65rem',
-            fontSize: '0.85rem',
-            fontWeight: 500,
-            color: canResetAllOverrides ? '#1e293b' : '#94a3b8',
-            backgroundColor: canResetAllOverrides ? '#f1f5f9' : '#f8fafc',
-            border: '1px solid #cbd5e1',
-            borderRadius: '6px',
-            cursor: canResetAllOverrides ? 'pointer' : 'not-allowed',
-          }}
-        >
-          ⟲ {t('toolbar.resetAllPositions')}
-        </button>
+
+        {mode === 'position' && (
+          <>
+            <button
+              type="button"
+              onClick={handleButtonClick(onResetOverride ?? (() => {}))}
+              onMouseDown={(e) => e.preventDefault()}
+              disabled={!canResetOverride}
+              title={`${t('toolbar.resetPosition')} (Ctrl+0)`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                padding: '0.4rem 0.65rem',
+                fontSize: '0.85rem',
+                fontWeight: 500,
+                color: canResetOverride ? '#1e293b' : '#94a3b8',
+                backgroundColor: canResetOverride ? '#f1f5f9' : '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                cursor: canResetOverride ? 'pointer' : 'not-allowed',
+              }}
+            >
+              ⟲ {t('toolbar.resetPosition')}
+            </button>
+            <button
+              type="button"
+              onClick={handleButtonClick(onResetAllOverrides ?? (() => {}))}
+              onMouseDown={(e) => e.preventDefault()}
+              disabled={!canResetAllOverrides}
+              title={t('toolbar.resetAllPositions')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                padding: '0.4rem 0.65rem',
+                fontSize: '0.85rem',
+                fontWeight: 500,
+                color: canResetAllOverrides ? '#1e293b' : '#94a3b8',
+                backgroundColor: canResetAllOverrides ? '#f1f5f9' : '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                cursor: canResetAllOverrides ? 'pointer' : 'not-allowed',
+              }}
+            >
+              ⟲ {t('toolbar.resetAllPositions')}
+            </button>
+          </>
+        )}
       </div>
 
-      {/* Middle section: Note Input Mode & Duration Palette */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <button
-          type="button"
-          onClick={handleButtonClick(onToggleInputMode)}
-          onMouseDown={(e) => e.preventDefault()}
-          title={`${t('toolbar.noteInput')} (N)`}
+      {/* Middle section: Explicit 3-mode segmented control & Duration Palette */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <div
+          role="group"
+          aria-label="Mode"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '0.4rem',
-            padding: '0.4rem 0.8rem',
-            fontSize: '0.85rem',
-            fontWeight: 600,
-            color: isInputMode ? '#ffffff' : '#1e293b',
-            backgroundColor: isInputMode ? '#2563eb' : '#f1f5f9',
-            border: `1px solid ${isInputMode ? '#1d4ed8' : '#cbd5e1'}`,
+            backgroundColor: '#f1f5f9',
+            border: '1px solid #cbd5e1',
             borderRadius: '6px',
-            cursor: 'pointer',
-            boxShadow: isInputMode ? '0 1px 3px rgba(37,99,235,0.3)' : 'none',
+            padding: '2px',
+            gap: '2px',
           }}
         >
-          <span>🎵</span>
-          <span>{t('toolbar.noteInput')} (N)</span>
-        </button>
+          {MODES.map((m) => {
+            const isActive = mode === m.id;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                data-mode-btn={m.id}
+                aria-pressed={isActive}
+                onClick={handleButtonClick(() => onChangeMode(m.id))}
+                onMouseDown={(e) => e.preventDefault()}
+                title={`${t(m.labelKey)} (${m.shortcut})`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  padding: '0.36rem 0.72rem',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  color: isActive ? '#ffffff' : '#334155',
+                  backgroundColor: isActive ? '#2563eb' : 'transparent',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  boxShadow: isActive ? '0 1px 2px rgba(37,99,235,0.25)' : 'none',
+                }}
+              >
+                {t(m.labelKey)}
+              </button>
+            );
+          })}
+        </div>
 
         {/* Palette buttons */}
         <div
@@ -325,7 +358,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Right section: Zoom, NoteNameStyle, Language */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-        {/* Zoom selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
           <label htmlFor="zoom-select" style={{ fontSize: '0.825rem', color: '#64748b' }}>
             {t('toolbar.zoom')}:
@@ -355,7 +387,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </select>
         </div>
 
-        {/* Note name style */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
           <label htmlFor="notename-select" style={{ fontSize: '0.825rem', color: '#64748b' }}>
             {t('toolbar.noteNameStyle')}:
@@ -383,7 +414,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </select>
         </div>
 
-        {/* Language select */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
           <label htmlFor="language-select" style={{ fontSize: '0.825rem', color: '#64748b' }}>
             {t('toolbar.language')}:

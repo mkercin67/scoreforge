@@ -7,6 +7,8 @@
 
 import { BaseDurationType, PitchStep } from '../core/model';
 
+export type EditorMode = 'select' | 'input' | 'position';
+
 export type UserAction =
   | 'transpose-semitone-up'
   | 'transpose-semitone-down'
@@ -18,7 +20,9 @@ export type UserAction =
   | 'clear-selection'
   | 'undo'
   | 'redo'
+  | 'set-mode-select'
   | 'toggle-note-input'
+  | 'toggle-position-mode'
   | 'exit-note-input'
   | 'enter-rest'
   | 'toggle-dot'
@@ -56,107 +60,121 @@ const PITCH_LETTERS: Record<string, PitchStep> = {
 };
 
 /**
- * Maps a physical keyboard event to a high-level editor action.
+ * Maps a physical keyboard event to a high-level editor action according to the active mode.
  *
  * @param e - Keyboard event or mock event containing code and modifier keys.
- * @param isInputMode - Whether the editor is currently in note-input mode.
+ * @param modeOrIsInput - Active editor mode ('select' | 'input' | 'position') or legacy boolean.
  * @returns Recognized UserAction or null if unmapped.
  */
-export function mapKeyEvent(e: KeyEventLike, isInputMode = false): UserAction | null {
+export function mapKeyEvent(
+  e: KeyEventLike,
+  modeOrIsInput: EditorMode | boolean = 'select'
+): UserAction | null {
+  const mode: EditorMode =
+    typeof modeOrIsInput === 'boolean' ? (modeOrIsInput ? 'input' : 'select') : modeOrIsInput;
+
   const isCmdOrCtrl = Boolean(e.ctrlKey || e.metaKey);
   const isShift = Boolean(e.shiftKey);
   const isAlt = Boolean(e.altKey);
 
-  // Undo / Redo (Ctrl+Z / Ctrl+Y / Cmd+Z)
-  if (isCmdOrCtrl && !isAlt) {
+  // All Alt shortcuts are disabled
+  if (isAlt) {
+    return null;
+  }
+
+  // Undo / Redo / Octave transposition / Reset override
+  if (isCmdOrCtrl) {
     if (e.code === 'KeyZ') {
       return isShift ? 'redo' : 'undo';
     }
     if (e.code === 'KeyY') {
       return 'redo';
     }
-    // Octave transposition with Ctrl+ArrowUp / Down
     if (e.code === 'ArrowUp' && !isShift) {
       return 'transpose-octave-up';
     }
     if (e.code === 'ArrowDown' && !isShift) {
       return 'transpose-octave-down';
     }
-    // Reset override with Ctrl+Digit0
     if (e.code === 'Digit0') {
       return 'reset-override';
     }
     return null;
   }
 
-  // Nudge override with Alt+Arrow (or Shift+Alt+Arrow)
-  if (isAlt && !isCmdOrCtrl) {
+  // Explicit mode switches (unmodified)
+  if (!isShift) {
+    if (e.code === 'KeyV') {
+      return 'set-mode-select';
+    }
+    if (e.code === 'KeyN') {
+      return 'toggle-note-input';
+    }
+    if (e.code === 'KeyP') {
+      return 'toggle-position-mode';
+    }
+    if (e.code === 'Escape') {
+      if (mode === 'input') return 'exit-note-input';
+      if (mode === 'position') return 'set-mode-select';
+      return 'clear-selection';
+    }
+  }
+
+  // Position mode arrows & Tab navigation
+  if (mode === 'position') {
     const step = isShift ? 1.0 : 0.25;
-    if (e.code === 'ArrowUp') return { type: 'nudge-override', dx: 0, dy: -step };
-    if (e.code === 'ArrowDown') return { type: 'nudge-override', dx: 0, dy: step };
     if (e.code === 'ArrowLeft') return { type: 'nudge-override', dx: -step, dy: 0 };
     if (e.code === 'ArrowRight') return { type: 'nudge-override', dx: step, dy: 0 };
+    if (e.code === 'ArrowUp') return { type: 'nudge-override', dx: 0, dy: -step };
+    if (e.code === 'ArrowDown') return { type: 'nudge-override', dx: 0, dy: step };
+    if (e.code === 'Tab') {
+      return isShift ? 'select-prev' : 'select-next';
+    }
+  }
+
+  if (isShift) {
     return null;
   }
 
-  // If any modifier (Ctrl, Meta, Alt) is held, ignore all remaining keys
-  if (isCmdOrCtrl || isAlt) {
-    return null;
-  }
-
-  // KeyN toggles note-input mode
-  if (e.code === 'KeyN' && !isShift) {
-    return 'toggle-note-input';
-  }
-
-  // Escape exits note-input mode if active, else clears selection
-  if (e.code === 'Escape') {
-    return isInputMode ? 'exit-note-input' : 'clear-selection';
-  }
-
-  // Pitch keys KeyA..KeyG: only enter note when isInputMode is true; otherwise prompt hint
-  if (PITCH_LETTERS[e.code] && !isShift) {
-    if (!isInputMode) {
+  // Pitch entry (Input mode only)
+  if (PITCH_LETTERS[e.code]) {
+    if (mode !== 'input') {
       return 'show-input-off-hint';
     }
     return { type: 'enter-pitch', letter: PITCH_LETTERS[e.code] };
   }
 
-  // Digit0 enters a rest when isInputMode is true; otherwise prompt hint
-  if (e.code === 'Digit0' && !isShift) {
-    if (!isInputMode) {
+  // Rest entry (Input mode only)
+  if (e.code === 'Digit0') {
+    if (mode !== 'input') {
       return 'show-input-off-hint';
     }
     return 'enter-rest';
   }
 
-  // Duration selection keys Digit2..Digit7
-  if (DIGIT_DURATIONS[e.code] && !isShift) {
+  // Duration palette keys
+  if (DIGIT_DURATIONS[e.code]) {
     return { type: 'set-duration', baseType: DIGIT_DURATIONS[e.code] };
   }
 
-  // Period toggles dot
   if (e.code === 'Period') {
     return 'toggle-dot';
   }
 
-  // Navigation (ArrowLeft / ArrowRight)
-  if (e.code === 'ArrowLeft' && !isShift) {
+  // Standard arrow navigation & semitone transposition
+  if (e.code === 'ArrowLeft') {
     return 'select-prev';
   }
-  if (e.code === 'ArrowRight' && !isShift) {
+  if (e.code === 'ArrowRight') {
     return 'select-next';
   }
-
-  // Semitone transposition (ArrowUp / ArrowDown)
-  if (e.code === 'ArrowUp' && !isShift) {
+  if (e.code === 'ArrowUp') {
     return 'transpose-semitone-up';
   }
-  if (e.code === 'ArrowDown' && !isShift) {
+  if (e.code === 'ArrowDown') {
     return 'transpose-semitone-down';
   }
 
-  // Rest conversion / Deletion
   if (e.code === 'Delete' || e.code === 'Backspace') {
     return 'convert-to-rest';
   }

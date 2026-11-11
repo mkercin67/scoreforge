@@ -7,13 +7,14 @@ import {
   isDragPastThreshold,
   clampOverrideOffset,
   getSystemMeasureBounds,
+  getItemRect,
   computeEventHitBoxes,
   hitTestEvent,
 } from '../../src/layout/mouse';
 import { layoutScore } from '../../src/layout/layoutScore';
 import { createEmptyScore, createNote, createPitch, createRest } from '../../src/core/factory';
 import { History, setOverride, clearOverride, changePitch } from '../../src/core/commands';
-import { NoteEvent } from '../../src/core/model';
+import { BaseDurationType, NoteEvent } from '../../src/core/model';
 
 describe('Milestone 3c: Mouse Input & Manual Positioning', () => {
   describe('yToStaffPosition', () => {
@@ -442,18 +443,38 @@ describe('Milestone 3c: Mouse Input & Manual Positioning', () => {
     });
   });
 
-  describe('M3c3 clampOverrideOffset & limit indicator', () => {
-    it('clamps note dx to [-4, +4] and measure bounds while ignoring dy, and reports isAtLimit', () => {
-      const score = createEmptyScore({ measures: 1 });
+  describe('M3c4 clampOverrideOffset measure-wide bounds & rest [-1, 5] glyph band', () => {
+    it('allows note dx across full measure width (beyond +/-4) and clamps at measure/header bounds while ignoring dy', () => {
+      // Multi-system score where M0 (full 4/4 span) is stretched wide on system 0 (~25+ spaces)
+      const score = createEmptyScore({ measures: 8 });
       const m0 = score.measures[0].id;
       const n1 = createNote({
         pitches: [createPitch('C', 5, 1)],
         baseType: 'eighth',
         dots: 1,
       });
-      score.parts[0].staves[0].measures[m0] = { voices: [{ id: 'v1', events: [n1] }] };
+      score.parts[0].staves[0].measures[m0] = {
+        voices: [
+          {
+            id: 'v1',
+            events: [n1, createRest({ baseType: 'eighth' }), createRest({ baseType: 'quarter' }), createRest({ baseType: 'half' })],
+          },
+        ],
+      };
+      for (let i = 1; i < score.measures.length; i++) {
+        score.parts[0].staves[0].measures[score.measures[i].id] = {
+          voices: [
+            {
+              id: 'v1',
+              events: Array.from({ length: 8 }, (_, j) =>
+                createNote({ pitches: [createPitch(j % 2 === 0 ? 'C' : 'D', 4)], baseType: 'eighth' })
+              ),
+            },
+          ],
+        };
+      }
 
-      const layout = layoutScore(score, { width: 80 });
+      const layout = layoutScore(score, { width: 100 });
       const sys = layout.systems[0];
       const bounds = getSystemMeasureBounds(sys)[0];
       const items = sys.items.filter(
@@ -461,41 +482,79 @@ describe('Milestone 3c: Mouse Input & Manual Positioning', () => {
       );
 
       // Drag far left -> hits header left bound and sets isAtLimit = true
-      const leftRes = clampOverrideOffset(items, bounds, -10, -5, false, 0);
+      const leftRes = clampOverrideOffset(items, bounds, -25, -5, false, 0);
       expect(leftRes.dy).toBe(0);
-      expect(leftRes.dx).toBeGreaterThan(-10);
-      expect(leftRes.dx).toBeGreaterThanOrEqual(-4);
+      expect(leftRes.dx).toBeGreaterThan(-25);
+      expect(leftRes.dx).toBeLessThan(0);
       expect(leftRes.isAtLimit).toBe(true);
 
-      // Drag far right -> clamped to +4 or right barline bound and sets isAtLimit = true
-      const rightRes = clampOverrideOffset(items, bounds, 20, 5, false, 0);
+      // Drag far right -> can travel far past +4 across wide measure up to right barline bound
+      const rightRes = clampOverrideOffset(items, bounds, 100, 5, false, 0);
       expect(rightRes.dy).toBe(0);
-      expect(rightRes.dx).toBeLessThanOrEqual(4);
+      expect(rightRes.dx).toBeGreaterThan(8);
       expect(rightRes.isAtLimit).toBe(true);
+
+      // Undo of one setOverride position drag = one History step
+      const history = new History(score);
+      const afterDrag = history.do(setOverride(n1.id, { dx: rightRes.dx, dy: 0 }));
+      expect(afterDrag.overrides[n1.id]).toEqual({ dx: rightRes.dx, dy: 0 });
+      const undone = history.undo();
+      expect(undone).not.toBeNull();
+      expect(history.score.overrides[n1.id]).toBeUndefined();
     });
 
-    it('clamps rest dy to [-6, +6] and dx to [-4, +4] / measure bounds and sets isAtLimit', () => {
-      const score = createEmptyScore({ measures: 1 });
-      const m0 = score.measures[0].id;
-      const r1 = createRest({ baseType: 'quarter' });
-      score.parts[0].staves[0].measures[m0] = { voices: [{ id: 'v1', events: [r1] }] };
+    it.each<BaseDurationType>(['whole', 'half', 'quarter', 'eighth', '16th', '32nd'])(
+      'clamps %s rest glyph bbox vertically within [-1, 5] and allows measure-wide dx',
+      (baseType) => {
+        const score = createEmptyScore({ measures: 8 });
+        const m0 = score.measures[0].id;
+        const r1 = createRest({ baseType });
+        const filler =
+          baseType === 'whole'
+            ? []
+            : baseType === 'half'
+            ? [createRest({ baseType: 'half' })]
+            : baseType === 'quarter'
+            ? [createRest({ baseType: 'quarter' }), createRest({ baseType: 'half' })]
+            : [createRest({ baseType: 'eighth' }), createRest({ baseType: 'quarter' }), createRest({ baseType: 'half' })];
+        score.parts[0].staves[0].measures[m0] = { voices: [{ id: 'v1', events: [r1, ...filler] }] };
+        for (let i = 1; i < score.measures.length; i++) {
+          score.parts[0].staves[0].measures[score.measures[i].id] = {
+            voices: [
+              {
+                id: 'v1',
+                events: Array.from({ length: 8 }, (_, j) =>
+                  createNote({ pitches: [createPitch(j % 2 === 0 ? 'C' : 'D', 4)], baseType: 'eighth' })
+                ),
+              },
+            ],
+          };
+        }
 
-      const layout = layoutScore(score, { width: 80 });
-      const sys = layout.systems[0];
-      const bounds = getSystemMeasureBounds(sys)[0];
-      const items = sys.items.filter(
-        (it) => it.eventId === r1.id || it.id === r1.id || it.id.startsWith(`${r1.id}-`)
-      );
+        const layout = layoutScore(score, { width: 100 });
+        const sys = layout.systems[0];
+        const bounds = getSystemMeasureBounds(sys)[0];
+        const items = sys.items.filter(
+          (it) => it.eventId === r1.id || it.id === r1.id || it.id.startsWith(`${r1.id}-`)
+        );
+        const restGlyph = items.find((it) => Boolean(it.glyph))!;
+        const baseRect = getItemRect(restGlyph);
 
-      const clampedUp = clampOverrideOffset(items, bounds, 0.5, -12, true, 0);
-      expect(clampedUp.dy).toBe(-6);
-      expect(clampedUp.dx).toBe(0.5);
-      expect(clampedUp.isAtLimit).toBe(true);
+        const clampedUp = clampOverrideOffset(items, bounds, 0.5, -12, true, 0);
+        expect(clampedUp.isAtLimit).toBe(true);
+        expect(baseRect.y1 + clampedUp.dy).toBeCloseTo(-1.0, 3);
+        expect(baseRect.y2 + clampedUp.dy).toBeLessThanOrEqual(5.0 + 1e-6);
 
-      const clampedDown = clampOverrideOffset(items, bounds, 0, 12, true, 0);
-      expect(clampedDown.dy).toBe(6);
-      expect(clampedDown.isAtLimit).toBe(true);
-    });
+        const clampedDown = clampOverrideOffset(items, bounds, 0, 12, true, 0);
+        expect(clampedDown.isAtLimit).toBe(true);
+        expect(baseRect.y2 + clampedDown.dy).toBeCloseTo(5.0, 3);
+        expect(baseRect.y1 + clampedDown.dy).toBeGreaterThanOrEqual(-1.0 - 1e-6);
+
+        const clampedRight = clampOverrideOffset(items, bounds, 100, 0, true, 0);
+        expect(clampedRight.dx).toBeGreaterThan(8);
+        expect(clampedRight.isAtLimit).toBe(true);
+      }
+    );
   });
 
   describe('M3c3 hitTestEvent union hit boxes & overlap resolution', () => {

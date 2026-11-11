@@ -6,6 +6,7 @@
 
 import { LayoutItem, LayoutResult, LayoutSystem } from './types';
 import { Score } from '../core/model';
+import { getGlyphAdvanceWidth, getGlyphBBox } from '../render/smufl';
 
 /**
  * Computes measure horizontal boundaries [minX, maxX] inside a system.
@@ -53,10 +54,8 @@ export function getSystemMeasureBounds(system: LayoutSystem): SystemMeasureBound
   const headerEndX = headerItems.reduce((max, it) => {
     const w =
       it.width ??
-      (it.glyph === 'gClef' || it.glyph === 'fClef'
-        ? 2.4
-        : it.glyph?.startsWith('timeSig')
-        ? 1.5
+      (it.glyph
+        ? getGlyphAdvanceWidth(it.glyph)
         : it.kind === 'line'
         ? 0.2
         : 1.1);
@@ -90,17 +89,19 @@ export function getItemRect(item: LayoutItem): { x1: number; x2: number; y1: num
 
   const g = item.glyph ?? '';
   if (g.startsWith('rest')) {
+    const bbox = getGlyphBBox(g);
+    const adv = getGlyphAdvanceWidth(g);
     return {
-      x1: item.x,
-      x2: item.x + (item.width ?? 1.0),
-      y1: item.y - 1.2,
-      y2: item.y + 1.2,
+      x1: item.x + (bbox ? bbox.bBoxSW[0] : 0),
+      x2: item.x + (bbox ? bbox.bBoxNE[0] : (item.width ?? adv)),
+      y1: item.y - (bbox ? bbox.bBoxNE[1] : 1.2),
+      y2: item.y - (bbox ? bbox.bBoxSW[1] : -1.2),
     };
   }
   if (g.startsWith('notehead')) {
     return {
       x1: item.x,
-      x2: item.x + (item.width ?? 1.18),
+      x2: item.x + (item.width ?? getGlyphAdvanceWidth(g)),
       y1: item.y - 0.5,
       y2: item.y + 0.5,
     };
@@ -244,8 +245,12 @@ export function hitTestEvent(
 }
 
 /**
- * Clamps a manual override offset for an event so it stays within [-4, +4] dx,
- * [-6, +6] dy (for rests; 0 for notes/chords), and strictly within its measure bounds.
+ * Clamps a manual override offset for an event so:
+ * - Noteheads (with accidental and dots) or rests stay inside their own measure bounds
+ *   (left = leftBarline + 0.5 or headerEnd + 0.8; right = rightBarline - 0.5 - glyphWidth; NO +-4 limit).
+ * - Notes/chords ignore vertical offsets (dy = 0).
+ * - Rest glyphs stay vertically inside y = [-1.0, 5.0] in staff spaces (top line = 0, bottom line = 4)
+ *   computed from the rest's default y and SMuFL glyph bounding box metrics (NO +-6 limit).
  */
 export function clampOverrideOffset(
   items: LayoutItem[],
@@ -253,15 +258,26 @@ export function clampOverrideOffset(
   rawDx: number,
   rawDy: number,
   isRest: boolean,
-  existingAppliedDx = 0
+  existingAppliedDx = 0,
+  existingAppliedDy = 0
 ): { dx: number; dy: number; isAtLimit: boolean } {
+  const horizItems = items.filter((it) => {
+    if (it.hidden) return false;
+    const g = it.glyph ?? '';
+    return (
+      g.startsWith('notehead') ||
+      g.startsWith('accidental') ||
+      g === 'augmentationDot' ||
+      g.startsWith('rest')
+    );
+  });
+  const targetHorizItems = horizItems.length > 0 ? horizItems : items.filter((it) => !it.hidden);
+
   let evMinX = Infinity;
   let evMaxX = -Infinity;
 
-  for (const it of items) {
-    if (it.hidden) continue;
+  for (const it of targetHorizItems) {
     const r = getItemRect(it);
-    // Unshifted bounds = current rendered position minus existingAppliedDx
     const unshiftedX1 = r.x1 - existingAppliedDx;
     const unshiftedX2 = r.x2 - existingAppliedDx;
     if (unshiftedX1 < evMinX) evMinX = unshiftedX1;
@@ -272,18 +288,18 @@ export function clampOverrideOffset(
     return { dx: 0, dy: 0, isAtLimit: false };
   }
 
-  const minAllowedDx = Math.max(-4, measureBounds.leftBound - evMinX);
-  const maxAllowedDx = Math.min(4, measureBounds.rightBound - evMaxX);
+  const minAllowedDx = measureBounds.leftBound - evMinX;
+  const maxAllowedDx = measureBounds.rightBound - evMaxX;
 
   let clampedDx = rawDx;
   let atLimitX = false;
 
   if (minAllowedDx <= maxAllowedDx) {
     if (rawDx <= minAllowedDx) {
-      clampedDx = Number(minAllowedDx.toFixed(4));
+      clampedDx = minAllowedDx;
       atLimitX = true;
     } else if (rawDx >= maxAllowedDx) {
-      clampedDx = Number(maxAllowedDx.toFixed(4));
+      clampedDx = maxAllowedDx;
       atLimitX = true;
     }
   } else {
@@ -295,13 +311,30 @@ export function clampOverrideOffset(
   let atLimitY = false;
 
   if (isRest) {
-    clampedDy = rawDy;
-    if (rawDy <= -6) {
-      clampedDy = -6;
-      atLimitY = true;
-    } else if (rawDy >= 6) {
-      clampedDy = 6;
-      atLimitY = true;
+    const restItem = items.find((it) => !it.hidden && it.glyph?.startsWith('rest'));
+    if (restItem && restItem.glyph) {
+      const defaultY = restItem.y - existingAppliedDy;
+      const bbox = getGlyphBBox(restItem.glyph);
+      const neY = bbox ? bbox.bBoxNE[1] : 1.0;
+      const swY = bbox ? bbox.bBoxSW[1] : -1.0;
+      // Top of glyph (defaultY + dy - neY) >= -1.0; Bottom (defaultY + dy - swY) <= 5.0
+      const minAllowedDy = -1.0 - defaultY + neY;
+      const maxAllowedDy = 5.0 - defaultY + swY;
+
+      if (minAllowedDy <= maxAllowedDy) {
+        if (rawDy <= minAllowedDy) {
+          clampedDy = minAllowedDy;
+          atLimitY = true;
+        } else if (rawDy >= maxAllowedDy) {
+          clampedDy = maxAllowedDy;
+          atLimitY = true;
+        } else {
+          clampedDy = rawDy;
+        }
+      } else {
+        clampedDy = 0;
+        atLimitY = true;
+      }
     }
   }
 
@@ -310,6 +343,58 @@ export function clampOverrideOffset(
     dy: clampedDy === 0 ? 0 : clampedDy,
     isAtLimit: atLimitX || atLimitY,
   };
+}
+
+/**
+ * Clamps an event's desired override (dx, dy) against its measure & rest band limits
+ * using an already-computed LayoutResult.
+ */
+export function clampEventOverrideInLayout(
+  layout: LayoutResult,
+  score: Score,
+  eventId: string,
+  rawDx: number,
+  rawDy: number
+): { dx: number; dy: number; isAtLimit: boolean; isRest: boolean } {
+  let isRest = false;
+  let evMeasureId: string | undefined;
+  for (const p of score.parts) {
+    for (const st of p.staves) {
+      for (const mId of Object.keys(st.measures)) {
+        const found = st.measures[mId].voices[0]?.events.find((ev) => ev.id === eventId);
+        if (found) {
+          evMeasureId = mId;
+          isRest = found.kind === 'rest';
+          break;
+        }
+      }
+      if (evMeasureId) break;
+    }
+    if (evMeasureId) break;
+  }
+
+  const targetSys = layout.systems.find((s) => s.items.some((it) => it.eventId === eventId));
+  if (!targetSys || !evMeasureId) {
+    return { dx: rawDx, dy: isRest ? rawDy : 0, isAtLimit: false, isRest };
+  }
+
+  const eventItems = targetSys.items.filter((it) => it.eventId === eventId);
+  const mBounds = getSystemMeasureBounds(targetSys).find((b) => b.measureId === evMeasureId);
+  if (!mBounds || eventItems.length === 0) {
+    return { dx: rawDx, dy: isRest ? rawDy : 0, isAtLimit: false, isRest };
+  }
+
+  const existingApplied = layout.appliedOverrides?.[eventId] ?? { dx: 0, dy: 0 };
+  const clamped = clampOverrideOffset(
+    eventItems,
+    mBounds,
+    rawDx,
+    rawDy,
+    isRest,
+    existingApplied.dx,
+    existingApplied.dy
+  );
+  return { ...clamped, isRest };
 }
 
 /**

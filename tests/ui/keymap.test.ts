@@ -39,10 +39,21 @@ describe('keymap', () => {
     expect(mapKeyEvent({ code: 'KeyY', metaKey: true })).toBe('redo');
   });
 
-  it('maps KeyN to toggle-note-input', () => {
+  it('maps KeyN, KeyP, KeyV and Escape cleanly across select/input/position modes', () => {
     expect(mapKeyEvent({ code: 'KeyN' })).toBe('toggle-note-input');
-    // Ignored when Ctrl is held
+    expect(mapKeyEvent({ code: 'KeyP' })).toBe('toggle-position-mode');
+    expect(mapKeyEvent({ code: 'KeyV' }, 'input')).toBe('set-mode-select');
+    expect(mapKeyEvent({ code: 'KeyV' }, 'position')).toBe('set-mode-select');
+
+    // Escape per mode
+    expect(mapKeyEvent({ code: 'Escape' }, 'select')).toBe('clear-selection');
+    expect(mapKeyEvent({ code: 'Escape' }, 'input')).toBe('exit-note-input');
+    expect(mapKeyEvent({ code: 'Escape' }, 'position')).toBe('set-mode-select');
+
+    // Ignored when Ctrl/Alt/Shift is held
     expect(mapKeyEvent({ code: 'KeyN', ctrlKey: true })).toBeNull();
+    expect(mapKeyEvent({ code: 'KeyP', ctrlKey: true })).toBeNull();
+    expect(mapKeyEvent({ code: 'KeyV', altKey: true })).toBeNull();
   });
 
   it('maps KeyA..KeyG to enter-pitch when isInputMode is true; prompts hint when false', () => {
@@ -71,40 +82,56 @@ describe('keymap', () => {
     expect(mapKeyEvent({ code: 'Digit0', metaKey: true }, false)).toBe('reset-override');
   });
 
-  it('maps Alt+Arrow and Shift+Alt+Arrow to nudge-override', () => {
-    // 0.25 staff space nudge
-    expect(mapKeyEvent({ code: 'ArrowUp', altKey: true })).toEqual({
+  it('disables all Alt shortcuts and maps position-mode Arrows / Tab / Shift+Tab cleanly', () => {
+    // All Alt shortcuts must return null
+    expect(mapKeyEvent({ code: 'ArrowUp', altKey: true }, 'select')).toBeNull();
+    expect(mapKeyEvent({ code: 'ArrowDown', altKey: true }, 'position')).toBeNull();
+    expect(mapKeyEvent({ code: 'ArrowLeft', altKey: true }, 'input')).toBeNull();
+    expect(mapKeyEvent({ code: 'ArrowRight', altKey: true, shiftKey: true }, 'select')).toBeNull();
+    expect(mapKeyEvent({ code: 'KeyC', altKey: true }, 'input')).toBeNull();
+    expect(mapKeyEvent({ code: 'KeyP', altKey: true }, 'select')).toBeNull();
+    expect(mapKeyEvent({ code: 'Digit5', altKey: true }, 'input')).toBeNull();
+
+    // Position mode 0.25 staff space nudge with Arrows
+    expect(mapKeyEvent({ code: 'ArrowUp' }, 'position')).toEqual({
       type: 'nudge-override',
       dx: 0,
       dy: -0.25,
     });
-    expect(mapKeyEvent({ code: 'ArrowDown', altKey: true })).toEqual({
+    expect(mapKeyEvent({ code: 'ArrowDown' }, 'position')).toEqual({
       type: 'nudge-override',
       dx: 0,
       dy: 0.25,
     });
-    expect(mapKeyEvent({ code: 'ArrowLeft', altKey: true })).toEqual({
+    expect(mapKeyEvent({ code: 'ArrowLeft' }, 'position')).toEqual({
       type: 'nudge-override',
       dx: -0.25,
       dy: 0,
     });
-    expect(mapKeyEvent({ code: 'ArrowRight', altKey: true })).toEqual({
+    expect(mapKeyEvent({ code: 'ArrowRight' }, 'position')).toEqual({
       type: 'nudge-override',
       dx: 0.25,
       dy: 0,
     });
 
-    // 1.0 staff space nudge with Shift+Alt
-    expect(mapKeyEvent({ code: 'ArrowUp', altKey: true, shiftKey: true })).toEqual({
+    // Position mode 1.0 staff space nudge with Shift+Arrow
+    expect(mapKeyEvent({ code: 'ArrowUp', shiftKey: true }, 'position')).toEqual({
       type: 'nudge-override',
       dx: 0,
       dy: -1.0,
     });
-    expect(mapKeyEvent({ code: 'ArrowRight', altKey: true, shiftKey: true })).toEqual({
+    expect(mapKeyEvent({ code: 'ArrowRight', shiftKey: true }, 'position')).toEqual({
       type: 'nudge-override',
       dx: 1.0,
       dy: 0,
     });
+
+    // Position mode Tab / Shift+Tab navigation
+    expect(mapKeyEvent({ code: 'Tab' }, 'position')).toBe('select-next');
+    expect(mapKeyEvent({ code: 'Tab', shiftKey: true }, 'position')).toBe('select-prev');
+
+    // Note input mode suppresses letter entry hint check on position mode too
+    expect(mapKeyEvent({ code: 'KeyC' }, 'position')).toBe('show-input-off-hint');
   });
 
   it('maps Digit2..Digit7 to set-duration', () => {

@@ -5,13 +5,14 @@
  * keyboard interaction, and automated verification states.
  */
 
-import React, { useEffect, useLayoutEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { convertToRest, setOverride, transposeEvent } from '../core/commands';
 import { createEmptyScore } from '../core/factory';
-import { Pitch } from '../core/model';
+import { Pitch, Score } from '../core/model';
+import { LayoutResult } from '../layout/types';
 import { Diagnostics, PerfSample } from './Diagnostics';
 import { I18nProvider, useI18n } from './i18n';
-import { mapKeyEvent } from './keymap';
+import { EditorMode, mapKeyEvent } from './keymap';
 import { NewScoreConfig, NewScoreModal } from './NewScoreModal';
 import { ScoreView } from './ScoreView';
 import { StatusBar } from './StatusBar';
@@ -23,6 +24,12 @@ declare global {
     __perf?: number[];
     __perfT0?: number;
     __applyRawOverrideForTest?: (eventId: string, dx: number, dy: number) => void;
+    __getScoreForTest?: () => Score;
+    __getEditorStateForTest?: () => {
+      mode: EditorMode;
+      selectedEventId: string | null;
+      cursor: unknown;
+    };
     __printPerfTable?: () => {
       first10: { p50: number; p95: number };
       last10: { p50: number; p95: number };
@@ -52,8 +59,11 @@ const EditorShell: React.FC = () => {
     selectEvent,
     selectNext,
     selectedEventInfo,
+    mode,
+    setMode,
+    togglePositionMode,
     isInputMode,
-    setIsInputMode,
+
     toggleInputMode,
     exitInputMode,
     activeDuration,
@@ -89,6 +99,19 @@ const EditorShell: React.FC = () => {
   const [hoverPitch, setHoverPitch] = useState<Pitch | null>(null);
   const [hoverInfo, setHoverInfo] = useState<{ pitch: Pitch; measureNumber: number } | null>(null);
   const [dragStatus, setDragStatus] = useState<string | null>(null);
+  const latestLayoutRef = useRef<LayoutResult | null>(null);
+  const scoreRef = useRef<Score>(score);
+  scoreRef.current = score;
+  const editorStateRef = useRef<{
+    mode: EditorMode;
+    selectedEventId: string | null;
+    cursor: unknown;
+  }>({ mode, selectedEventId, cursor });
+  editorStateRef.current = { mode, selectedEventId, cursor };
+
+  useEffect(() => {
+    setDragStatus(null);
+  }, [selectedEventId, mode]);
 
   const handleCreateNewScore = (config: NewScoreConfig) => {
     const t0 = performance.now();
@@ -99,7 +122,7 @@ const EditorShell: React.FC = () => {
       measures: config.measures,
     });
     resetScore(fresh);
-    setIsInputMode(true);
+    setMode('select');
     const elapsed = performance.now() - t0;
     console.log(`[PERF] createEmptyScore & resetScore took: ${elapsed.toFixed(2)} ms`);
   };
@@ -130,7 +153,7 @@ const EditorShell: React.FC = () => {
           measures: 64,
         });
         resetScore(bScore);
-        setIsInputMode(true);
+        setMode('input');
         setActiveDuration('quarter');
         setActiveDots(0);
         return;
@@ -143,7 +166,7 @@ const EditorShell: React.FC = () => {
           measures: 4,
         });
         resetScore(s34);
-        setIsInputMode(true);
+        setMode('input');
         setActiveDuration('quarter');
         setActiveDots(0);
         return;
@@ -157,7 +180,7 @@ const EditorShell: React.FC = () => {
           measures: 4,
         });
         resetScore(sb);
-        setIsInputMode(true);
+        setMode('input');
         setActiveDuration('quarter');
         setActiveDots(0);
         return;
@@ -171,7 +194,7 @@ const EditorShell: React.FC = () => {
         measures: 8,
       });
       resetScore(freshScore);
-      setIsInputMode(false);
+      setMode('select');
       setActiveDuration('quarter');
       setActiveDots(0);
 
@@ -234,7 +257,7 @@ const EditorShell: React.FC = () => {
     }
   }, [
     resetScore,
-    setIsInputMode,
+
     setActiveDuration,
     setActiveDots,
     enterPitchAtCursor,
@@ -267,6 +290,8 @@ const EditorShell: React.FC = () => {
     window.__applyRawOverrideForTest = (eventId: string, dx: number, dy: number) => {
       executeCommand(setOverride(eventId, { dx, dy }));
     };
+    window.__getScoreForTest = () => scoreRef.current;
+    window.__getEditorStateForTest = () => editorStateRef.current;
     window.__printPerfTable = () => {
       const arr = window.__perf ?? [];
       const first10 = arr.slice(0, 10);
@@ -310,7 +335,7 @@ const EditorShell: React.FC = () => {
         (e.target as HTMLElement).blur();
       }
 
-      const action = mapKeyEvent(e, isInputMode);
+      const action = mapKeyEvent(e, mode);
       if (!action) return;
 
       e.preventDefault();
@@ -355,6 +380,14 @@ const EditorShell: React.FC = () => {
             redo();
             recordSample('Redo');
             break;
+          case 'set-mode-select':
+            setMode('select');
+            setDragStatus(null);
+            break;
+          case 'toggle-position-mode':
+            togglePositionMode();
+            setDragStatus(null);
+            break;
           case 'toggle-note-input':
             toggleInputMode();
             break;
@@ -365,14 +398,14 @@ const EditorShell: React.FC = () => {
             selectEvent(null);
             break;
           case 'select-prev':
-            if (isInputMode) {
+            if (mode === 'input') {
               moveCursorDirection('prev');
             } else {
               selectNext('prev');
             }
             break;
           case 'select-next':
-            if (isInputMode) {
+            if (mode === 'input') {
               moveCursorDirection('next');
             } else {
               selectNext('next');
@@ -380,25 +413,25 @@ const EditorShell: React.FC = () => {
             break;
           case 'transpose-semitone-up':
             if (selectedEventId) {
-              executeCommand(transposeEvent(selectedEventId, 1));
+              if (mode === 'select') executeCommand(transposeEvent(selectedEventId, 1));
               recordSample('ArrowUp');
             }
             break;
           case 'transpose-semitone-down':
             if (selectedEventId) {
-              executeCommand(transposeEvent(selectedEventId, -1));
+              if (mode === 'select') executeCommand(transposeEvent(selectedEventId, -1));
               recordSample('ArrowDown');
             }
             break;
           case 'transpose-octave-up':
             if (selectedEventId) {
-              executeCommand(transposeEvent(selectedEventId, 12));
+              if (mode === 'select') executeCommand(transposeEvent(selectedEventId, 12));
               recordSample('Ctrl+ArrowUp');
             }
             break;
           case 'transpose-octave-down':
             if (selectedEventId) {
-              executeCommand(transposeEvent(selectedEventId, -12));
+              if (mode === 'select') executeCommand(transposeEvent(selectedEventId, -12));
               recordSample('Ctrl+ArrowDown');
             }
             break;
@@ -410,7 +443,7 @@ const EditorShell: React.FC = () => {
             break;
           case 'convert-to-rest':
             if (selectedEventId) {
-              executeCommand(convertToRest(selectedEventId));
+              if (mode === 'select') executeCommand(convertToRest(selectedEventId));
               recordSample('Delete');
             }
             break;
@@ -436,10 +469,24 @@ const EditorShell: React.FC = () => {
           if (selectedEventId && selectedEventInfo) {
             if (action.dy !== 0 && (selectedEventInfo.isNote || selectedEventInfo.isChord)) {
               triggerRejectedError(t('status.noVerticalOffset'));
-              recordSample('Alt+Arrow');
+              recordSample('Arrow');
             } else {
-              applyEventOverride(selectedEventId, action.dx, action.dy);
-              recordSample('Alt+Arrow');
+              const res = applyEventOverride(
+                selectedEventId,
+                action.dx,
+                action.dy,
+                true,
+                latestLayoutRef.current ?? undefined
+              );
+              if (res.isAtLimit) {
+                setDragStatus(
+                  `dx ${res.dx.toFixed(2)} · dy ${res.dy.toFixed(2)} · ${t('status.offsetLimit')}`
+                );
+                triggerRejectedError(t('status.offsetLimit'));
+              } else {
+                setDragStatus(`dx ${res.dx.toFixed(2)} · dy ${res.dy.toFixed(2)}`);
+              }
+              recordSample('Arrow');
             }
           }
         }
@@ -449,6 +496,9 @@ const EditorShell: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
+    mode,
+    setMode,
+    togglePositionMode,
     isInputMode,
     selectedEventId,
     selectedEventInfo,
@@ -496,8 +546,8 @@ const EditorShell: React.FC = () => {
         canResetAllOverrides={hasAnyOverride}
         onResetAllOverrides={() => setIsResetAllConfirmOpen(true)}
         onOpenNewScore={() => setIsNewModalOpen(true)}
-        isInputMode={isInputMode}
-        onToggleInputMode={toggleInputMode}
+        mode={mode}
+        onChangeMode={setMode}
         activeDuration={activeDuration}
         onChangeDuration={(d) => {
           setActiveDuration(d);
@@ -513,19 +563,22 @@ const EditorShell: React.FC = () => {
         selectedEventId={selectedEventId}
         onSelectEvent={selectEvent}
         cursor={cursor}
-        isInputMode={isInputMode}
+        mode={mode}
         activeDuration={activeDuration}
         onSelectMeasure={setCursorToMeasure}
         onEnterPitchDirect={enterPitchDirect}
         onApplyOverride={applyEventOverride}
         onChangePitch={changeEventPitch}
+        onLayoutChange={(layout) => {
+          latestLayoutRef.current = layout;
+        }}
         onHoverPitch={setHoverPitch}
         onHoverInfo={setHoverInfo}
         onDragStatus={setDragStatus}
       />
       <StatusBar
         selection={selectedEventInfo}
-        isInputMode={isInputMode}
+        mode={mode}
         activeDuration={activeDuration}
         currentMeasureNumber={currentMeasureNumber}
         rejectedMessage={rejectedError}

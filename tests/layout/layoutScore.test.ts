@@ -322,12 +322,18 @@ describe('layoutScore', () => {
     });
   });
 
-  describe('M3c3 render-time clamping of extreme manual overrides', () => {
-    it.each([385, 600, 1200])(
-      'clamps legacy extreme overrides (dx=100, dx=-100, dy=-50) inside measure/header bounds and SVG viewBox at %ipx width',
-      (pxWidth) => {
+  describe('M3c4 render-time clamping of extreme manual overrides', () => {
+    it.each([
+      [385, 'G', 2],
+      [600, 'G', 2],
+      [1200, 'G', 2],
+      [600, 'F', 4],
+    ] as const)(
+      'clamps legacy extreme overrides inside true measure bounds & rest [-1, 5] band at %ipx (%s clef)',
+      (pxWidth, clefSign, clefLine) => {
         const score = createScore({ title: 'Clamp Test' });
         const part = createPart('Piano');
+        part.staves[0].clef = { sign: clefSign, line: clefLine };
         score.parts = [part];
 
         const m0 = createMeasure({ num: 4, den: 4 }, 1); // G major (key sig)
@@ -336,19 +342,25 @@ describe('layoutScore', () => {
         score.measures = [m0, m1, m2];
 
         const nStart = createNote({
-          pitches: [createPitch('C', 5, 1)],
+          pitches: [createPitch('C', clefSign === 'F' ? 3 : 5, 1)],
           baseType: 'half',
           dots: 1,
         });
         const rStart = createRest({ baseType: 'quarter' });
-        const nRight = createNote({ pitches: [createPitch('G', 4, 0)], baseType: 'whole' });
-        const nLast = createNote({ pitches: [createPitch('A', 4, -1)], baseType: 'whole' });
+        const nRight = createNote({
+          pitches: [createPitch(clefSign === 'F' ? 'D' : 'G', clefSign === 'F' ? 3 : 4, 0)],
+          baseType: 'whole',
+        });
+        const nLast = createNote({
+          pitches: [createPitch(clefSign === 'F' ? 'F' : 'A', clefSign === 'F' ? 3 : 4, -1)],
+          baseType: 'whole',
+        });
 
         part.staves[0].measures[m0.id] = { voices: [{ id: 'v1', events: [nStart, rStart] }] };
         part.staves[0].measures[m1.id] = { voices: [{ id: 'v1', events: [nRight] }] };
         part.staves[0].measures[m2.id] = { voices: [{ id: 'v1', events: [nLast] }] };
 
-        // Inject extreme legacy overrides
+        // Inject extreme legacy overrides (must NOT be rewritten by layoutScore)
         score.overrides[nStart.id] = { dx: -100, dy: -50 };
         score.overrides[rStart.id] = { dx: 100, dy: -50 };
         score.overrides[nRight.id] = { dx: 100, dy: 25 };
@@ -357,19 +369,19 @@ describe('layoutScore', () => {
         const widthSpaces = pxWidth / 10;
         const layout = layoutScore(score, { width: widthSpaces });
 
-        // Stored overrides must NOT be mutated by layoutScore
         expect(score.overrides[nStart.id]).toEqual({ dx: -100, dy: -50 });
         expect(score.overrides[rStart.id]).toEqual({ dx: 100, dy: -50 });
         expect(score.overrides[nRight.id]).toEqual({ dx: 100, dy: 25 });
         expect(score.overrides[nLast.id]).toEqual({ dx: 100, dy: -50 });
 
-        // Applied overrides must respect [-4, 4] dx and dy=0 for notes, [-6, 6] dy for rests
+        // Applied overrides: notes force dy=0, restQuarter upper limit is -1.508 (top edge y=-1.0),
+        // and horizontal position is NOT capped at +/-4 when the measure is wider.
         expect(layout.appliedOverrides?.[nStart.id].dy).toBe(0);
-        expect(layout.appliedOverrides?.[nStart.id].dx).toBeGreaterThanOrEqual(-4);
-        expect(layout.appliedOverrides?.[rStart.id].dy).toBe(-6);
-        expect(layout.appliedOverrides?.[rStart.id].dx).toBeLessThanOrEqual(4);
+        expect(layout.appliedOverrides?.[rStart.id].dy).toBeCloseTo(-1.508, 3);
         expect(layout.appliedOverrides?.[nRight.id].dy).toBe(0);
-        expect(layout.appliedOverrides?.[nRight.id].dx).toBeLessThanOrEqual(4);
+        if (pxWidth >= 600) {
+          expect(layout.appliedOverrides?.[nRight.id].dx).toBeGreaterThan(4);
+        }
 
         const eventMeasureMap = new Map<string, string>([
           [nStart.id, m0.id],
@@ -396,6 +408,11 @@ describe('layoutScore', () => {
               if (item.kind === 'line' || item.glyph) {
                 expect(rect.x1).toBeGreaterThanOrEqual(bounds.leftBound - 1e-6);
                 expect(rect.x2).toBeLessThanOrEqual(bounds.rightBound + 1e-6);
+              }
+              if (eventId === rStart.id && item.glyph) {
+                // Rest bbox strictly within [-1, +5] staff spaces vertically
+                expect(rect.y1).toBeGreaterThanOrEqual(-1 - 1e-6);
+                expect(rect.y2).toBeLessThanOrEqual(5 + 1e-6);
               }
               const svgY = sys.y + rect.y1;
               expect(svgY).toBeGreaterThanOrEqual(0);

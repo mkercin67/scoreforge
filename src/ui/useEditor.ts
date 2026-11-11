@@ -1,8 +1,8 @@
 /**
  * State management hook for ScoreForge editor.
  *
- * Encapsulates the Score data model, Command history stack, selection state,
- * note input mode, cursor positioning, and error timing.
+ * Encapsulates the Score data model, Command history stack, explicit editor mode
+ * ('select' | 'input' | 'position'), selection state, cursor positioning, and error timing.
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -31,6 +31,10 @@ import {
 import { durationTicks, measureTicks } from '../core/time';
 import { newId } from '../core/factory';
 import { buildSampleScore } from './Demo';
+import { EditorMode } from './keymap';
+import { layoutScore } from '../layout/layoutScore';
+import { LayoutResult } from '../layout/types';
+import { clampEventOverrideInLayout } from '../layout/mouse';
 
 export interface SelectedEventInfo {
   eventId: string;
@@ -49,8 +53,10 @@ export function useEditor(initialScore?: Score) {
   const [score, setScore] = useState<Score>(() => historyRef.current.score);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
-  // Note Input Mode states
-  const [isInputMode, setIsInputMode] = useState<boolean>(false);
+  // Single source of truth for active editor mode
+  const [mode, setModeState] = useState<EditorMode>('select');
+  const isInputMode = mode === 'input';
+
   const [activeDuration, setActiveDuration] = useState<BaseDurationType>('quarter');
   const [activeDots, setActiveDots] = useState<number>(0);
   const [isRestSelected, setIsRestSelected] = useState<boolean>(false);
@@ -146,11 +152,37 @@ export function useEditor(initialScore?: Score) {
     [score, selectedEventId]
   );
 
-  // Toggle note-input mode
+  // Set explicit mode ('select' | 'input' | 'position')
+  const setMode = useCallback(
+    (nextMode: EditorMode) => {
+      setModeState(nextMode);
+      if (nextMode === 'input') {
+        setCursor((curr) => {
+          if (curr) return curr;
+          const sId = score.parts[0]?.staves[0]?.id;
+          const mId = score.measures[0]?.id;
+          const vId = score.parts[0]?.staves[0]?.measures[mId]?.voices[0]?.id;
+          if (sId && mId && vId) {
+            return { staffId: sId, voiceId: vId, measureId: mId, tick: 0 };
+          }
+          return null;
+        });
+      }
+    },
+    [score]
+  );
+
+  const setIsInputMode = useCallback(
+    (val: boolean) => {
+      setMode(val ? 'input' : 'select');
+    },
+    [setMode]
+  );
+
   const toggleInputMode = useCallback(() => {
-    setIsInputMode((prev) => {
-      const next = !prev;
-      if (next) {
+    setModeState((prev) => {
+      const next: EditorMode = prev === 'input' ? 'select' : 'input';
+      if (next === 'input') {
         setCursor((curr) => {
           if (curr) return curr;
           const sId = score.parts[0]?.staves[0]?.id;
@@ -166,8 +198,12 @@ export function useEditor(initialScore?: Score) {
     });
   }, [score]);
 
+  const togglePositionMode = useCallback(() => {
+    setModeState((prev) => (prev === 'position' ? 'select' : 'position'));
+  }, []);
+
   const exitInputMode = useCallback(() => {
-    setIsInputMode(false);
+    setModeState('select');
   }, []);
 
   const toggleDot = useCallback(() => {
@@ -181,7 +217,7 @@ export function useEditor(initialScore?: Score) {
   // Enter a note with the keyboard
   const enterPitchAtCursor = useCallback(
     (letter: PitchStep, errorMsg: string, noCursorMsg?: string) => {
-      if (!isInputMode) return;
+      if (mode !== 'input') return;
       if (!cursor) {
         triggerRejectedError(noCursorMsg ?? 'İmleç yok, bir ölçüye tıklayın');
         return;
@@ -225,7 +261,6 @@ export function useEditor(initialScore?: Score) {
       const isLastMeasure = mIdx === score.measures.length - 1;
       const willFinishMeasure = activeCursor.tick + duration >= mLength;
 
-      // If completing the last measure, append new measure first
       if (isLastMeasure && willFinishMeasure) {
         historyRef.current.do(appendMeasure());
       }
@@ -246,12 +281,12 @@ export function useEditor(initialScore?: Score) {
       const nextCursor = advanceCursor(nextScore, activeCursor, duration);
       setCursor(nextCursor);
     },
-    [isInputMode, cursor, score, activeDuration, activeDots, triggerRejectedError]
+    [mode, cursor, score, activeDuration, activeDots, triggerRejectedError]
   );
 
   const enterPitchDirect = useCallback(
     (pitch: Pitch, customCursor?: ScoreCursor, errorMsg = 'Nota ölçüye sığmıyor') => {
-      if (!isInputMode) return;
+      if (mode !== 'input') return;
       const targetC = customCursor ?? cursor;
       if (!targetC) {
         triggerRejectedError('İmleç yok, bir ölçüye tıklayın');
@@ -302,24 +337,37 @@ export function useEditor(initialScore?: Score) {
       const nextCursor = advanceCursor(nextScore, activeCursor, duration);
       setCursor(nextCursor);
     },
-    [isInputMode, cursor, score, activeDuration, activeDots, triggerRejectedError]
+    [mode, cursor, score, activeDuration, activeDots, triggerRejectedError]
   );
 
   const applyEventOverride = useCallback(
-    (eventId: string, dx: number, dy: number, accumulate = true) => {
-      const nextScore = historyRef.current.do(setOverride(eventId, { dx: Math.max(-4, Math.min(4, accumulate ? (historyRef.current.score.overrides[eventId]?.dx ?? 0) + dx : dx)), dy: Math.max(-6, Math.min(6, accumulate ? (historyRef.current.score.overrides[eventId]?.dy ?? 0) + dy : dy)) }, false));
+    (
+      eventId: string,
+      dx: number,
+      dy: number,
+      accumulate = true,
+      layoutArg?: LayoutResult
+    ): { dx: number; dy: number; isAtLimit: boolean; isRest: boolean } => {
+      const currScore = historyRef.current.score;
+      const existing = currScore.overrides[eventId];
+      const targetDx = accumulate ? (existing?.dx ?? 0) + dx : dx;
+      const targetDy = accumulate ? (existing?.dy ?? 0) + dy : dy;
+      const activeLayout = layoutArg ?? layoutScore(currScore, { width: 70 });
+      const clamped = clampEventOverrideInLayout(activeLayout, currScore, eventId, targetDx, targetDy);
+
+      const nextScore = historyRef.current.do(
+        setOverride(eventId, { dx: clamped.dx, dy: clamped.dy }, false)
+      );
       setScore(nextScore);
+      return clamped;
     },
     []
   );
 
-  const changeEventPitch = useCallback(
-    (eventId: string, pitches: Pitch[]) => {
-      const nextScore = historyRef.current.do(changePitch(eventId, pitches));
-      setScore(nextScore);
-    },
-    []
-  );
+  const changeEventPitch = useCallback((eventId: string, pitches: Pitch[]) => {
+    const nextScore = historyRef.current.do(changePitch(eventId, pitches));
+    setScore(nextScore);
+  }, []);
 
   const clearEventOverride = useCallback(
     (eventId?: string) => {
@@ -331,11 +379,14 @@ export function useEditor(initialScore?: Score) {
     [selectedEventId]
   );
 
-  const clearAllEventOverrides = useCallback(() => { const nextScore = historyRef.current.do(clearAllOverrides()); setScore(nextScore); }, []);
+  const clearAllEventOverrides = useCallback(() => {
+    const nextScore = historyRef.current.do(clearAllOverrides());
+    setScore(nextScore);
+  }, []);
 
   const enterRestAtCursor = useCallback(
     (errorMsg: string, noCursorMsg?: string) => {
-      if (!isInputMode) return;
+      if (mode !== 'input') return;
       if (!cursor) {
         triggerRejectedError(noCursorMsg ?? 'İmleç yok, bir ölçüye tıklayın');
         return;
@@ -385,7 +436,7 @@ export function useEditor(initialScore?: Score) {
       const nextCursor = advanceCursor(nextScore, activeCursor, duration);
       setCursor(nextCursor);
     },
-    [isInputMode, cursor, score, activeDuration, activeDots, triggerRejectedError]
+    [mode, cursor, score, activeDuration, activeDots, triggerRejectedError]
   );
 
   const moveCursorDirection = useCallback(
@@ -395,7 +446,6 @@ export function useEditor(initialScore?: Score) {
       setCursor(nextCursor);
       lastEnteredPitchRef.current = getLastNotePitchBeforeCursor(score, nextCursor);
 
-      // Select event at new cursor position
       const staff = score.parts[0]?.staves.find((s) => s.id === nextCursor.staffId);
       const sm = staff?.measures[nextCursor.measureId];
       const voice = sm?.voices.find((v) => v.id === nextCursor.voiceId) ?? sm?.voices[0];
@@ -482,6 +532,9 @@ export function useEditor(initialScore?: Score) {
     selectEvent,
     selectNext,
     selectedEventInfo,
+    mode,
+    setMode,
+    togglePositionMode,
     isInputMode,
     setIsInputMode,
     toggleInputMode,

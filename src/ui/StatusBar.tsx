@@ -1,11 +1,12 @@
 /**
- * Status bar presenting details of the currently selected event, note input mode status,
- * temporary error messages, and editor hints.
+ * Status bar presenting the active editor mode, details of the currently selected event,
+ * temporary error messages, drag offset/pitch feedback, and context shortcuts.
  */
 
 import React from 'react';
 import { BaseDurationType, Pitch } from '../core/model';
 import { formatPitchName, useI18n } from './i18n';
+import { EditorMode } from './keymap';
 import { SelectedEventInfo } from './useEditor';
 
 export interface HoverInfo {
@@ -15,7 +16,7 @@ export interface HoverInfo {
 
 export interface StatusBarProps {
   selection: SelectedEventInfo | null;
-  isInputMode?: boolean;
+  mode?: EditorMode;
   activeDuration?: BaseDurationType;
   currentMeasureNumber?: number;
   rejectedMessage?: string | null;
@@ -26,9 +27,15 @@ export interface StatusBarProps {
   dragStatus?: string | null;
 }
 
+const MODE_COLORS: Record<EditorMode, { bg: string; fg: string; border: string }> = {
+  select: { bg: '#e2e8f0', fg: '#1e293b', border: '#cbd5e1' },
+  input: { bg: '#dbeafe', fg: '#1d4ed8', border: '#93c5fd' },
+  position: { bg: '#ccfbf1', fg: '#0f766e', border: '#5eead4' },
+};
+
 export const StatusBar: React.FC<StatusBarProps> = ({
   selection,
-  isInputMode = false,
+  mode = 'select',
   activeDuration = 'quarter',
   currentMeasureNumber = 1,
   rejectedMessage = null,
@@ -41,7 +48,6 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   const { t, language, noteNameStyle } = useI18n();
 
   const renderStatusContent = () => {
-    // 1. Priority: Temporary rejected entry error message (shown in red for 2 seconds)
     if (rejectedMessage) {
       return (
         <span style={{ color: '#dc2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -51,7 +57,6 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       );
     }
 
-    // 2. Active drag status (e.g. target pitch during pitch drag or "dx +0.50" during Alt+drag)
     if (dragStatus) {
       return (
         <span style={{ color: '#2563eb', fontWeight: 600 }}>
@@ -60,8 +65,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       );
     }
 
-    // 3. Note Input Mode info: "Nota girişi · Dörtlük nota · Ölçü 1 · İşaretçi: Ölçü 2 · Fa4"
-    if (isInputMode) {
+    if (mode === 'input') {
       const durationText = t(`duration.${activeDuration}.note`);
       let pointerText = '';
       if (hoverInfo) {
@@ -84,7 +88,6 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       );
     }
 
-    // 4. Normal selection inspection
     if (!selection) {
       return (
         <span style={{ color: '#64748b', fontStyle: 'italic' }}>
@@ -167,6 +170,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     return null;
   };
 
+  const badgeColors = MODE_COLORS[mode];
+
   return (
     <footer
       style={{
@@ -183,15 +188,41 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <span
+          data-status-mode={mode}
+          style={{
+            padding: '0.12rem 0.55rem',
+            fontSize: '0.75rem',
+            fontWeight: 700,
+            backgroundColor: badgeColors.bg,
+            color: badgeColors.fg,
+            border: `1px solid ${badgeColors.border}`,
+            borderRadius: '4px',
+          }}
+        >
+          {t(`mode.${mode}`)}
+        </span>
         {renderStatusContent()}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', color: '#64748b', fontSize: '0.775rem' }}>
-        <span>{t('shortcut.transpose')}</span>
-        <span>•</span>
-        <span>{t('shortcut.delete')}</span>
-        <span>•</span>
-        <span>{t('shortcut.navigate')}</span>
+        {mode === 'position' ? (
+          <>
+            <span>{t('shortcut.positionArrows')}</span>
+            <span>•</span>
+            <span>{t('shortcut.positionTab')}</span>
+            <span>•</span>
+            <span>{t('shortcut.positionReset')}</span>
+          </>
+        ) : (
+          <>
+            <span>{t('shortcut.transpose')}</span>
+            <span>•</span>
+            <span>{t('shortcut.delete')}</span>
+            <span>•</span>
+            <span>{t('shortcut.navigate')}</span>
+          </>
+        )}
       </div>
     </footer>
   );
