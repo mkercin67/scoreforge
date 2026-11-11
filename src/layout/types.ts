@@ -52,6 +52,7 @@ export interface LayoutResult {
   systems: LayoutSystem[];
   items: LayoutItem[];
   score?: Score;
+  appliedOverrides?: Record<string, { dx: number; dy: number }>;
 }
 
 /** Options configuring layout dimensions and wrapping behavior. */

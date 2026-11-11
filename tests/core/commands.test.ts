@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   changePitch,
+  clearAllOverrides,
   convertToRest,
   deleteEvent,
   History,
@@ -427,5 +428,38 @@ describe('commands and History', () => {
       (e) => e.id === note1.id
     );
     expect(exists).toBe(false);
+  });
+
+  it('clearAllOverrides resets all manual overrides in one undoable step', () => {
+    const score = createScore();
+    const measure = createMeasure();
+    const part = createPart('Flute');
+    score.measures = [measure];
+    score.parts = [part];
+
+    const n1 = createNote({ pitches: [createPitch('C', 4, 0)], baseType: 'quarter' });
+    const n2 = createNote({ pitches: [createPitch('E', 4, 0)], baseType: 'quarter' });
+    const r1 = createRest({ baseType: 'half' });
+    part.staves[0].measures[measure.id] = { voices: [{ id: 'v1', events: [n1, n2, r1] }] };
+
+    const history = new History(score);
+    history.do(setOverride(n1.id, { dx: 1.5, dy: 0 }));
+    history.do(setOverride(n2.id, { dx: -1.25, dy: 0 }));
+    history.do(setOverride(r1.id, { dx: 0.5, dy: -2.0 }));
+
+    expect(Object.keys(history.score.overrides)).toHaveLength(3);
+
+    history.do(clearAllOverrides());
+    expect(history.score.overrides).toEqual({});
+
+    // Single undo restores all three overrides at once
+    history.undo();
+    expect(history.score.overrides[n1.id]).toEqual({ dx: 1.5, dy: 0 });
+    expect(history.score.overrides[n2.id]).toEqual({ dx: -1.25, dy: 0 });
+    expect(history.score.overrides[r1.id]).toEqual({ dx: 0.5, dy: -2.0 });
+
+    // Redo clears them again
+    history.redo();
+    expect(history.score.overrides).toEqual({});
   });
 });

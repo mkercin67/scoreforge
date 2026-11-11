@@ -20,6 +20,7 @@ import { PPQ } from '../core/time';
 import { MeasureAccidentalTracker } from './accidentals';
 import { getKeySignatureAccidentals, getKeySignatureAlter } from './keySignature';
 import { getLedgerLineYs, getStemDirection, pitchToStaffPosition, staffPositionToY } from './pitch';
+import { clampOverrideOffset, getSystemMeasureBounds, SystemMeasureBounds } from './mouse';
 import {
   LayoutItem,
   LayoutOptions,
@@ -484,7 +485,7 @@ export function layoutSingleMeasure(
 export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutResult {
   const targetWidth = options.width ?? 70;
   const systemSpacing = options.systemSpacing ?? 10;
-  const staffMarginTop = 4.0;
+  const staffMarginTop = 7.0;
   const staffMarginBottom = 4.0;
 
   const part: Part | undefined = score.parts[0];
@@ -736,51 +737,131 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
     });
   }
 
-  // Build lookup of event IDs to their kind for layout override rules
+  // Build lookup of event IDs to their kind and measure for layout override rules
   const eventKindMap = new Map<string, string>();
+  const eventMeasureMap = new Map<string, string>();
   for (const part of score.parts) {
     for (const st of part.staves) {
       for (const mId of Object.keys(st.measures)) {
         for (const vc of st.measures[mId].voices) {
           for (const ev of vc.events) {
             eventKindMap.set(ev.id, ev.kind);
+            eventMeasureMap.set(ev.id, mId);
           }
         }
       }
     }
   }
 
+  const appliedOverrides: Record<string, { dx: number; dy: number }> = {};
+
   // Apply visual overrides (both element-level and event-level overrides apply)
+  // Render-time clamping: clamps stored values inside measure and system without mutating score.overrides
   for (const sys of systems) {
+    const measureBoundsList = getSystemMeasureBounds(sys);
+    const measureBoundsMap = new Map<string, SystemMeasureBounds>();
+    for (const mb of measureBoundsList) {
+      measureBoundsMap.set(mb.measureId, mb);
+    }
+
+    const eventItemsMap = new Map<string, LayoutItem[]>();
     for (const item of sys.items) {
+      if (item.eventId) {
+        let list = eventItemsMap.get(item.eventId);
+        if (!list) {
+          list = [];
+          eventItemsMap.set(item.eventId, list);
+        }
+        list.push(item);
+      }
+    }
+
+    const processedItems = new Set<string>();
+
+    for (const [eventId, items] of eventItemsMap.entries()) {
+      const isRest = eventKindMap.get(eventId) === 'rest';
+      const measureId = eventMeasureMap.get(eventId);
+      const mBounds = measureId ? measureBoundsMap.get(measureId) : undefined;
+
+      const evOverride = score.overrides[eventId];
+      const rawDx = evOverride?.dx ?? 0;
+      const rawDy = evOverride?.dy ?? 0;
+
+      let effectiveDx = 0;
+      let effectiveDy = 0;
+
+      if (evOverride && (rawDx !== 0 || (isRest && rawDy !== 0))) {
+        if (mBounds) {
+          const clamped = clampOverrideOffset(items, mBounds, rawDx, rawDy, isRest, 0);
+          effectiveDx = clamped.dx;
+          effectiveDy = clamped.dy;
+        } else {
+          effectiveDx = Math.max(-4, Math.min(4, rawDx));
+          effectiveDy = isRest ? Math.max(-6, Math.min(6, rawDy)) : 0;
+        }
+      }
+
+      if (effectiveDx !== 0 || effectiveDy !== 0) {
+        appliedOverrides[eventId] = { dx: effectiveDx, dy: effectiveDy };
+      }
+
+      for (const item of items) {
+        processedItems.add(item.id);
+        const itemOverride = score.overrides[item.id];
+        const itemExtraDx =
+          itemOverride && item.id !== eventId
+            ? Math.max(-4, Math.min(4, itemOverride.dx ?? 0))
+            : 0;
+        const itemExtraDy =
+          itemOverride && item.id !== eventId && isRest
+            ? Math.max(-6, Math.min(6, itemOverride.dy ?? 0))
+            : 0;
+
+        const totalDx = effectiveDx + itemExtraDx;
+        const totalDy = effectiveDy + itemExtraDy;
+
+        if (totalDx !== 0) {
+          item.x += totalDx;
+          if (item.x2 !== undefined) item.x2 += totalDx;
+        }
+        if (totalDy !== 0) {
+          item.y += totalDy;
+          if (item.y2 !== undefined) item.y2 += totalDy;
+        }
+
+        const scale = itemOverride?.scale ?? evOverride?.scale;
+        if (scale !== undefined) {
+          item.scale = scale;
+        }
+
+        const hidden = itemOverride?.hidden ?? evOverride?.hidden;
+        if (hidden !== undefined) {
+          item.hidden = hidden;
+        }
+      }
+    }
+
+    // Standalone items (lines, barlines, headers)
+    for (const item of sys.items) {
+      if (processedItems.has(item.id)) continue;
       const itemOverride = score.overrides[item.id];
-      const evOverride =
-        item.eventId && item.eventId !== item.id ? score.overrides[item.eventId] : undefined;
+      if (!itemOverride) continue;
 
-      const dx = (itemOverride?.dx ?? 0) + (evOverride?.dx ?? 0);
-      const dy = (itemOverride?.dy ?? 0) + (evOverride?.dy ?? 0);
+      const rawDx = itemOverride.dx ?? 0;
+      const rawDy = itemOverride.dy ?? 0;
+      const clampedDx = Math.max(-4, Math.min(4, rawDx));
+      const clampedDy = Math.max(-6, Math.min(6, rawDy));
 
-      // Manual positioning: notes and chords ignore dy (only pitch changes affect vertical position)
-      const isNoteOrChord = item.eventId ? eventKindMap.get(item.eventId) === 'note' : false;
-
-      if (dx !== 0) {
-        item.x += dx;
-        if (item.x2 !== undefined) item.x2 += dx;
+      if (clampedDx !== 0) {
+        item.x += clampedDx;
+        if (item.x2 !== undefined) item.x2 += clampedDx;
       }
-      if (dy !== 0 && !isNoteOrChord) {
-        item.y += dy;
-        if (item.y2 !== undefined) item.y2 += dy;
+      if (clampedDy !== 0) {
+        item.y += clampedDy;
+        if (item.y2 !== undefined) item.y2 += clampedDy;
       }
-
-      const scale = itemOverride?.scale ?? evOverride?.scale;
-      if (scale !== undefined) {
-        item.scale = scale;
-      }
-
-      const hidden = itemOverride?.hidden ?? evOverride?.hidden;
-      if (hidden !== undefined) {
-        item.hidden = hidden;
-      }
+      if (itemOverride.scale !== undefined) item.scale = itemOverride.scale;
+      if (itemOverride.hidden !== undefined) item.hidden = itemOverride.hidden;
     }
   }
 
@@ -797,5 +878,6 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
     systems,
     items: allItems,
     score,
+    appliedOverrides,
   };
 }

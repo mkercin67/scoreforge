@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Command, History, setOverride, clearOverride, changePitch } from '../core/commands';
+import { Command, History, setOverride, clearOverride, clearAllOverrides, changePitch } from '../core/commands';
 import {
   BaseDurationType,
   NoteEvent,
@@ -307,7 +307,7 @@ export function useEditor(initialScore?: Score) {
 
   const applyEventOverride = useCallback(
     (eventId: string, dx: number, dy: number, accumulate = true) => {
-      const nextScore = historyRef.current.do(setOverride(eventId, { dx, dy }, accumulate));
+      const nextScore = historyRef.current.do(setOverride(eventId, { dx: Math.max(-4, Math.min(4, accumulate ? (historyRef.current.score.overrides[eventId]?.dx ?? 0) + dx : dx)), dy: Math.max(-6, Math.min(6, accumulate ? (historyRef.current.score.overrides[eventId]?.dy ?? 0) + dy : dy)) }, false));
       setScore(nextScore);
     },
     []
@@ -330,6 +330,8 @@ export function useEditor(initialScore?: Score) {
     },
     [selectedEventId]
   );
+
+  const clearAllEventOverrides = useCallback(() => { const nextScore = historyRef.current.do(clearAllOverrides()); setScore(nextScore); }, []);
 
   const enterRestAtCursor = useCallback(
     (errorMsg: string, noCursorMsg?: string) => {
@@ -503,6 +505,8 @@ export function useEditor(initialScore?: Score) {
     applyEventOverride,
     clearEventOverride,
     hasSelectedOverride: Boolean(selectedEventId && score.overrides[selectedEventId]),
+    hasAnyOverride: Object.keys(score.overrides || {}).length > 0,
+    clearAllEventOverrides,
     selectedOverride: selectedEventId ? score.overrides[selectedEventId] : undefined,
     changeEventPitch,
     enterRestAtCursor,

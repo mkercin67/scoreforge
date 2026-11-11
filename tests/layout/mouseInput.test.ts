@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { yToStaffPosition, pitchToStaffPosition, staffPositionToY, getLedgerLineYs } from '../../src/layout/pitch';
-import { xToCursor, snapDragOffset, applyAxisLock, isDragPastThreshold } from '../../src/layout/mouse';
+import {
+  xToCursor,
+  snapDragOffset,
+  applyAxisLock,
+  isDragPastThreshold,
+  clampOverrideOffset,
+  getSystemMeasureBounds,
+  computeEventHitBoxes,
+  hitTestEvent,
+} from '../../src/layout/mouse';
 import { layoutScore } from '../../src/layout/layoutScore';
 import { createEmptyScore, createNote, createPitch, createRest } from '../../src/core/factory';
 import { History, setOverride, clearOverride, changePitch } from '../../src/core/commands';
@@ -430,6 +439,167 @@ describe('Milestone 3c: Mouse Input & Manual Positioning', () => {
       const undone = history.undo();
       expect(undone).not.toBeNull();
       expect((history.score.parts[0].staves[0].measures[m0].voices[0].events[0] as NoteEvent).pitches[0].step).toBe('C');
+    });
+  });
+
+  describe('M3c3 clampOverrideOffset & limit indicator', () => {
+    it('clamps note dx to [-4, +4] and measure bounds while ignoring dy, and reports isAtLimit', () => {
+      const score = createEmptyScore({ measures: 1 });
+      const m0 = score.measures[0].id;
+      const n1 = createNote({
+        pitches: [createPitch('C', 5, 1)],
+        baseType: 'eighth',
+        dots: 1,
+      });
+      score.parts[0].staves[0].measures[m0] = { voices: [{ id: 'v1', events: [n1] }] };
+
+      const layout = layoutScore(score, { width: 80 });
+      const sys = layout.systems[0];
+      const bounds = getSystemMeasureBounds(sys)[0];
+      const items = sys.items.filter(
+        (it) => it.eventId === n1.id || it.id === n1.id || it.id.startsWith(`${n1.id}-`)
+      );
+
+      // Drag far left -> hits header left bound and sets isAtLimit = true
+      const leftRes = clampOverrideOffset(items, bounds, -10, -5, false, 0);
+      expect(leftRes.dy).toBe(0);
+      expect(leftRes.dx).toBeGreaterThan(-10);
+      expect(leftRes.dx).toBeGreaterThanOrEqual(-4);
+      expect(leftRes.isAtLimit).toBe(true);
+
+      // Drag far right -> clamped to +4 or right barline bound and sets isAtLimit = true
+      const rightRes = clampOverrideOffset(items, bounds, 20, 5, false, 0);
+      expect(rightRes.dy).toBe(0);
+      expect(rightRes.dx).toBeLessThanOrEqual(4);
+      expect(rightRes.isAtLimit).toBe(true);
+    });
+
+    it('clamps rest dy to [-6, +6] and dx to [-4, +4] / measure bounds and sets isAtLimit', () => {
+      const score = createEmptyScore({ measures: 1 });
+      const m0 = score.measures[0].id;
+      const r1 = createRest({ baseType: 'quarter' });
+      score.parts[0].staves[0].measures[m0] = { voices: [{ id: 'v1', events: [r1] }] };
+
+      const layout = layoutScore(score, { width: 80 });
+      const sys = layout.systems[0];
+      const bounds = getSystemMeasureBounds(sys)[0];
+      const items = sys.items.filter(
+        (it) => it.eventId === r1.id || it.id === r1.id || it.id.startsWith(`${r1.id}-`)
+      );
+
+      const clampedUp = clampOverrideOffset(items, bounds, 0.5, -12, true, 0);
+      expect(clampedUp.dy).toBe(-6);
+      expect(clampedUp.dx).toBe(0.5);
+      expect(clampedUp.isAtLimit).toBe(true);
+
+      const clampedDown = clampOverrideOffset(items, bounds, 0, 12, true, 0);
+      expect(clampedDown.dy).toBe(6);
+      expect(clampedDown.isAtLimit).toBe(true);
+    });
+  });
+
+  describe('M3c3 hitTestEvent union hit boxes & overlap resolution', () => {
+    it('hits stem middle, flag tip, accidental, dot, ledger line, and rest center/corners', () => {
+      const score = createEmptyScore({ measures: 2 });
+      const m0 = score.measures[0].id;
+      const m1 = score.measures[1].id;
+
+      // 1) Eighth note with stem down, sharp accidental, augmentation dot, and ledger line above staff (A5)
+      const nHigh = createNote({
+        pitches: [createPitch('A', 5, 1)],
+        baseType: 'eighth',
+        dots: 1,
+      });
+      // 2) Stem-up note (E4)
+      const nLow = createNote({
+        pitches: [createPitch('E', 4, 0)],
+        baseType: 'eighth',
+      });
+      // 3) Quarter rest in measure 1
+      const rQuarter = createRest({ baseType: 'quarter' });
+
+      score.parts[0].staves[0].measures[m0] = { voices: [{ id: 'v1', events: [nHigh, nLow] }] };
+      score.parts[0].staves[0].measures[m1] = { voices: [{ id: 'v1', events: [rQuarter] }] };
+
+      const layout = layoutScore(score, { width: 100 });
+      const sys = layout.systems[0];
+
+      // Stem middle on nHigh (stem-down) & nLow (stem-up)
+      const highStem = sys.items.find((it) => it.id === `${nHigh.id}-stem` && it.kind === 'line')!;
+      expect(highStem).toBeDefined();
+      const stemMidY = (highStem.y + (highStem.y2 ?? highStem.y)) / 2;
+      expect(hitTestEvent(layout, 0, highStem.x, stemMidY)).toEqual({ eventId: nHigh.id, kind: 'note' });
+
+      const lowStem = sys.items.find((it) => it.id === `${nLow.id}-stem` && it.kind === 'line')!;
+      expect(lowStem).toBeDefined();
+      expect(
+        hitTestEvent(layout, 0, lowStem.x, (lowStem.y + (lowStem.y2 ?? lowStem.y)) / 2)
+      ).toEqual({ eventId: nLow.id, kind: 'note' });
+
+      // Flag tip on nLow (up flag)
+      const lowFlag = sys.items.find((it) => it.id === `${nLow.id}-flag`)!;
+      expect(lowFlag).toBeDefined();
+      expect(hitTestEvent(layout, 0, lowFlag.x + 0.5, lowFlag.y + 0.5)).toEqual({ eventId: nLow.id, kind: 'note' });
+
+      // Accidental on nHigh
+      const highAcc = sys.items.find(
+        (it) => it.glyph?.startsWith('accidental') && it.eventId === nHigh.id
+      )!;
+      expect(highAcc).toBeDefined();
+      expect(hitTestEvent(layout, 0, highAcc.x + 0.2, highAcc.y)).toEqual({ eventId: nHigh.id, kind: 'note' });
+
+      // Augmentation dot on nHigh
+      const highDot = sys.items.find(
+        (it) => it.glyph === 'augmentationDot' && it.eventId === nHigh.id
+      )!;
+      expect(highDot).toBeDefined();
+      expect(hitTestEvent(layout, 0, highDot.x + 0.1, highDot.y)).toEqual({ eventId: nHigh.id, kind: 'note' });
+
+      // Ledger line edge on nHigh
+      const highLedger = sys.items.find(
+        (it) => it.id.startsWith(`${nHigh.id}-ledger`) && it.kind === 'line'
+      )!;
+      expect(highLedger).toBeDefined();
+      expect(hitTestEvent(layout, 0, highLedger.x2 ?? highLedger.x, highLedger.y)).toEqual({
+        eventId: nHigh.id,
+        kind: 'note',
+      });
+
+      // Rest center & corners
+      const restGlyph = sys.items.find((it) => it.id === rQuarter.id)!;
+      expect(hitTestEvent(layout, 0, restGlyph.x + 0.5, restGlyph.y)).toEqual({
+        eventId: rQuarter.id,
+        kind: 'rest',
+      });
+      // Corner of >= 1.6 x 2.4 centered hit box (+0.4 pad -> +/-1.2 in X, +/-1.6 in Y from center)
+      expect(hitTestEvent(layout, 0, restGlyph.x + 0.5 + 1.0, restGlyph.y - 1.4)).toEqual({
+        eventId: rQuarter.id,
+        kind: 'rest',
+      });
+
+      // Empty measure space far right of rest must return null (not neighbor event)
+      expect(hitTestEvent(layout, 0, sys.width - 2.0, 2.0)).toBeNull();
+    });
+
+    it('resolves overlapping hit areas in favor of the nearest event center', () => {
+      const score = createEmptyScore({ measures: 1 });
+      const m0 = score.measures[0].id;
+      const n1 = createNote({ pitches: [createPitch('C', 4, 0)], baseType: 'quarter' });
+      const n2 = createNote({ pitches: [createPitch('D', 4, 0)], baseType: 'quarter' });
+      score.parts[0].staves[0].measures[m0] = { voices: [{ id: 'v1', events: [n1, n2] }] };
+
+      // Force n2 close to n1 so their padded hit boxes overlap
+      score.overrides[n2.id] = { dx: -3.5, dy: 0 };
+
+      const layout = layoutScore(score, { width: 80 });
+      const hitBoxes = computeEventHitBoxes(layout.systems[0]);
+      const hb1 = hitBoxes.find((b) => b.eventId === n1.id)!;
+      const hb2 = hitBoxes.find((b) => b.eventId === n2.id)!;
+
+      // Test slightly closer to hb2 center than hb1 center inside overlap
+      const overlapX = (hb1.centerX + hb2.centerX) / 2 + 0.05;
+      const hit = hitTestEvent(layout, 0, overlapX, hb2.centerY);
+      expect(hit?.eventId).toBe(n2.id);
     });
   });
 });

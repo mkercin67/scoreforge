@@ -9,6 +9,7 @@ import {
   createScore,
 } from '../../src/core/factory';
 import { getItemWidth, layoutScore } from '../../src/layout/layoutScore';
+import { getItemRect, getSystemMeasureBounds } from '../../src/layout/mouse';
 import { buildSampleScore } from '../../src/ui/Demo';
 
 describe('layoutScore', () => {
@@ -319,5 +320,92 @@ describe('layoutScore', () => {
 
       warnSpy.mockRestore();
     });
+  });
+
+  describe('M3c3 render-time clamping of extreme manual overrides', () => {
+    it.each([385, 600, 1200])(
+      'clamps legacy extreme overrides (dx=100, dx=-100, dy=-50) inside measure/header bounds and SVG viewBox at %ipx width',
+      (pxWidth) => {
+        const score = createScore({ title: 'Clamp Test' });
+        const part = createPart('Piano');
+        score.parts = [part];
+
+        const m0 = createMeasure({ num: 4, den: 4 }, 1); // G major (key sig)
+        const m1 = createMeasure(undefined, undefined);
+        const m2 = createMeasure(undefined, undefined);
+        score.measures = [m0, m1, m2];
+
+        const nStart = createNote({
+          pitches: [createPitch('C', 5, 1)],
+          baseType: 'half',
+          dots: 1,
+        });
+        const rStart = createRest({ baseType: 'quarter' });
+        const nRight = createNote({ pitches: [createPitch('G', 4, 0)], baseType: 'whole' });
+        const nLast = createNote({ pitches: [createPitch('A', 4, -1)], baseType: 'whole' });
+
+        part.staves[0].measures[m0.id] = { voices: [{ id: 'v1', events: [nStart, rStart] }] };
+        part.staves[0].measures[m1.id] = { voices: [{ id: 'v1', events: [nRight] }] };
+        part.staves[0].measures[m2.id] = { voices: [{ id: 'v1', events: [nLast] }] };
+
+        // Inject extreme legacy overrides
+        score.overrides[nStart.id] = { dx: -100, dy: -50 };
+        score.overrides[rStart.id] = { dx: 100, dy: -50 };
+        score.overrides[nRight.id] = { dx: 100, dy: 25 };
+        score.overrides[nLast.id] = { dx: 100, dy: -50 };
+
+        const widthSpaces = pxWidth / 10;
+        const layout = layoutScore(score, { width: widthSpaces });
+
+        // Stored overrides must NOT be mutated by layoutScore
+        expect(score.overrides[nStart.id]).toEqual({ dx: -100, dy: -50 });
+        expect(score.overrides[rStart.id]).toEqual({ dx: 100, dy: -50 });
+        expect(score.overrides[nRight.id]).toEqual({ dx: 100, dy: 25 });
+        expect(score.overrides[nLast.id]).toEqual({ dx: 100, dy: -50 });
+
+        // Applied overrides must respect [-4, 4] dx and dy=0 for notes, [-6, 6] dy for rests
+        expect(layout.appliedOverrides?.[nStart.id].dy).toBe(0);
+        expect(layout.appliedOverrides?.[nStart.id].dx).toBeGreaterThanOrEqual(-4);
+        expect(layout.appliedOverrides?.[rStart.id].dy).toBe(-6);
+        expect(layout.appliedOverrides?.[rStart.id].dx).toBeLessThanOrEqual(4);
+        expect(layout.appliedOverrides?.[nRight.id].dy).toBe(0);
+        expect(layout.appliedOverrides?.[nRight.id].dx).toBeLessThanOrEqual(4);
+
+        const eventMeasureMap = new Map<string, string>([
+          [nStart.id, m0.id],
+          [rStart.id, m0.id],
+          [nRight.id, m1.id],
+          [nLast.id, m2.id],
+        ]);
+
+        for (const sys of layout.systems) {
+          const boundsList = getSystemMeasureBounds(sys);
+          const boundsByMeasure = new Map(boundsList.map((b) => [b.measureId, b]));
+
+          for (const [eventId, measureId] of eventMeasureMap) {
+            const bounds = boundsByMeasure.get(measureId);
+            if (!bounds) continue;
+
+            const items = sys.items.filter(
+              (it) => it.eventId === eventId || it.id === eventId || it.id.startsWith(`${eventId}-`)
+            );
+            expect(items.length).toBeGreaterThan(0);
+
+            for (const item of items) {
+              const rect = getItemRect(item);
+              if (item.kind === 'line' || item.glyph) {
+                expect(rect.x1).toBeGreaterThanOrEqual(bounds.leftBound - 1e-6);
+                expect(rect.x2).toBeLessThanOrEqual(bounds.rightBound + 1e-6);
+              }
+              const svgY = sys.y + rect.y1;
+              expect(svgY).toBeGreaterThanOrEqual(0);
+              expect(sys.y + rect.y2).toBeLessThanOrEqual(layout.height + 1e-6);
+              expect(rect.x1).toBeGreaterThanOrEqual(0);
+              expect(rect.x2).toBeLessThanOrEqual(layout.width + 1e-6);
+            }
+          }
+        }
+      }
+    );
   });
 });

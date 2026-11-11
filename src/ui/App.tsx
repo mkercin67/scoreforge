@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useLayoutEffect, useState } from 'react';
-import { convertToRest, transposeEvent } from '../core/commands';
+import { convertToRest, setOverride, transposeEvent } from '../core/commands';
 import { createEmptyScore } from '../core/factory';
 import { Pitch } from '../core/model';
 import { Diagnostics, PerfSample } from './Diagnostics';
@@ -22,6 +22,7 @@ declare global {
   interface Window {
     __perf?: number[];
     __perfT0?: number;
+    __applyRawOverrideForTest?: (eventId: string, dx: number, dy: number) => void;
     __printPerfTable?: () => {
       first10: { p50: number; p95: number };
       last10: { p50: number; p95: number };
@@ -74,12 +75,15 @@ const EditorShell: React.FC = () => {
     enterPitchDirect,
     applyEventOverride,
     clearEventOverride,
+    clearAllEventOverrides,
     hasSelectedOverride,
+    hasAnyOverride,
     selectedOverride,
     changeEventPitch,
   } = useEditor();
 
   const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
+  const [isResetAllConfirmOpen, setIsResetAllConfirmOpen] = useState<boolean>(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState<boolean>(false);
   const [perfSamples, setPerfSamples] = useState<PerfSample[]>([]);
   const [hoverPitch, setHoverPitch] = useState<Pitch | null>(null);
@@ -260,6 +264,9 @@ const EditorShell: React.FC = () => {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    window.__applyRawOverrideForTest = (eventId: string, dx: number, dy: number) => {
+      executeCommand(setOverride(eventId, { dx, dy }));
+    };
     window.__printPerfTable = () => {
       const arr = window.__perf ?? [];
       const first10 = arr.slice(0, 10);
@@ -460,6 +467,9 @@ const EditorShell: React.FC = () => {
     setIsRestSelected,
     applyEventOverride,
     clearEventOverride,
+    clearAllEventOverrides,
+    hasSelectedOverride,
+    hasAnyOverride,
     t,
   ]);
 
@@ -483,6 +493,8 @@ const EditorShell: React.FC = () => {
         onRedo={redo}
         canResetOverride={hasSelectedOverride}
         onResetOverride={() => selectedEventId && clearEventOverride(selectedEventId)}
+        canResetAllOverrides={hasAnyOverride}
+        onResetAllOverrides={() => setIsResetAllConfirmOpen(true)}
         onOpenNewScore={() => setIsNewModalOpen(true)}
         isInputMode={isInputMode}
         onToggleInputMode={toggleInputMode}
@@ -530,6 +542,77 @@ const EditorShell: React.FC = () => {
         onClose={() => setIsNewModalOpen(false)}
         onCreate={handleCreateNewScore}
       />
+
+      {isResetAllConfirmOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 60,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '10px',
+              padding: '1.5rem',
+              maxWidth: '400px',
+              width: '90%',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)',
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+            }}
+          >
+            <h3 style={{ margin: '0 0 0.75rem 0', fontSize: '1.05rem', color: '#0f172a' }}>
+              {t('toolbar.resetAllPositions')}
+            </h3>
+            <p style={{ margin: '0 0 1.25rem 0', fontSize: '0.9rem', color: '#475569' }}>
+              {t('dialog.confirmResetAll')}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
+              <button
+                type="button"
+                onClick={() => setIsResetAllConfirmOpen(false)}
+                style={{
+                  padding: '0.45rem 0.9rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: '#ffffff',
+                  color: '#334155',
+                  cursor: 'pointer',
+                }}
+              >
+                {t('dialog.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearAllEventOverrides();
+                  setIsResetAllConfirmOpen(false);
+                }}
+                style={{
+                  padding: '0.45rem 0.9rem',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: '#dc2626',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                }}
+              >
+                {t('dialog.confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Diagnostics
         isOpen={isDiagnosticsOpen}

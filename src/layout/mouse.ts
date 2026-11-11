@@ -4,8 +4,313 @@
  * All calculations use pure functions operating on layout data and staff spaces.
  */
 
-import { LayoutResult } from './types';
+import { LayoutItem, LayoutResult, LayoutSystem } from './types';
 import { Score } from '../core/model';
+
+/**
+ * Computes measure horizontal boundaries [minX, maxX] inside a system.
+ */
+export interface SystemMeasureBounds {
+  measureId: string;
+  barlineX: number;
+  leftBound: number;
+  rightBound: number;
+}
+
+export function getSystemMeasureBounds(system: LayoutSystem): SystemMeasureBounds[] {
+  const barlines: Array<{ measureId: string; x: number }> = [];
+  const seenMeasures = new Set<string>();
+
+  for (const item of system.items) {
+    if (item.kind === 'line' && item.id.startsWith('barline-') && !item.id.includes('staffline')) {
+      const measureId = item.id.replace('barline-', '').replace('-thin', '').replace('-thick', '');
+      if (!seenMeasures.has(measureId)) {
+        seenMeasures.add(measureId);
+        barlines.push({ measureId, x: item.x });
+      } else {
+        // For final double barlines (-thin and -thick), use the thin (leftmost) barline for the right bound
+        const existing = barlines.find((b) => b.measureId === measureId);
+        if (existing && item.x < existing.x) {
+          existing.x = item.x;
+        }
+      }
+    }
+  }
+  barlines.sort((a, b) => a.x - b.x);
+  if (barlines.length === 0) return [];
+
+  const headerItems = system.items.filter(
+    (it) =>
+      !it.id.includes('staffline') &&
+      (it.id.includes('-start-barline') ||
+        it.id.includes('-clef-') ||
+        it.id.startsWith('clef-') ||
+        it.id.includes('-keysig-') ||
+        it.id.startsWith('keysig-') ||
+        it.id.startsWith('timesig-'))
+  );
+
+  const headerEndX = headerItems.reduce((max, it) => {
+    const w =
+      it.width ??
+      (it.glyph === 'gClef' || it.glyph === 'fClef'
+        ? 2.4
+        : it.glyph?.startsWith('timeSig')
+        ? 1.5
+        : it.kind === 'line'
+        ? 0.2
+        : 1.1);
+    return Math.max(max, it.x + w);
+  }, 0.4);
+
+  const bounds: SystemMeasureBounds[] = [];
+  for (let i = 0; i < barlines.length; i++) {
+    const bl = barlines[i];
+    const leftBound = i === 0 ? headerEndX + 0.8 : barlines[i - 1].x + 0.5;
+    const rightBound = bl.x - 0.5;
+    bounds.push({
+      measureId: bl.measureId,
+      barlineX: bl.x,
+      leftBound,
+      rightBound,
+    });
+  }
+  return bounds;
+}
+
+/** Bounding box helper for an individual layout item in staff spaces. */
+export function getItemRect(item: LayoutItem): { x1: number; x2: number; y1: number; y2: number } {
+  if (item.kind === 'line') {
+    const x1 = Math.min(item.x, item.x2 ?? item.x);
+    const x2 = Math.max(item.x, item.x2 ?? item.x);
+    const y1 = Math.min(item.y, item.y2 ?? item.y);
+    const y2 = Math.max(item.y, item.y2 ?? item.y);
+    return { x1, x2, y1, y2 };
+  }
+
+  const g = item.glyph ?? '';
+  if (g.startsWith('rest')) {
+    return {
+      x1: item.x,
+      x2: item.x + (item.width ?? 1.0),
+      y1: item.y - 1.2,
+      y2: item.y + 1.2,
+    };
+  }
+  if (g.startsWith('notehead')) {
+    return {
+      x1: item.x,
+      x2: item.x + (item.width ?? 1.18),
+      y1: item.y - 0.5,
+      y2: item.y + 0.5,
+    };
+  }
+  if (g.startsWith('accidental')) {
+    return {
+      x1: item.x,
+      x2: item.x + 1.0,
+      y1: item.y - 1.5,
+      y2: item.y + 1.5,
+    };
+  }
+  if (g === 'augmentationDot') {
+    return {
+      x1: item.x,
+      x2: item.x + 0.4,
+      y1: item.y - 0.25,
+      y2: item.y + 0.25,
+    };
+  }
+  if (g.startsWith('flag')) {
+    const isUp = g.includes('Up');
+    return {
+      x1: item.x,
+      x2: item.x + 1.0,
+      y1: isUp ? item.y : item.y - 2.0,
+      y2: isUp ? item.y + 2.0 : item.y,
+    };
+  }
+  return {
+    x1: item.x,
+    x2: item.x + (item.width ?? 1.18),
+    y1: item.y - 1.0,
+    y2: item.y + 1.0,
+  };
+}
+
+export interface EventHitArea {
+  eventId: string;
+  kind: 'note' | 'rest';
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  centerX: number;
+  centerY: number;
+}
+
+/**
+ * Computes union hit areas for all events in a system from layout data.
+ * Notes/chords: union of all items (head, stem, flag, dots, accidental, ledgers) + 0.4 padding.
+ * Rests: at least 1.6 x 2.4 centered on glyph (+ 0.4 padding).
+ */
+export function computeEventHitBoxes(system: LayoutSystem): EventHitArea[] {
+  const byEvent = new Map<string, LayoutItem[]>();
+  for (const item of system.items) {
+    if (!item.eventId || item.hidden) continue;
+    let list = byEvent.get(item.eventId);
+    if (!list) {
+      list = [];
+      byEvent.set(item.eventId, list);
+    }
+    list.push(item);
+  }
+
+  const areas: EventHitArea[] = [];
+  for (const [eventId, items] of byEvent.entries()) {
+    const isRest = items.some((it) => it.glyph?.startsWith('rest'));
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    for (const item of items) {
+      const r = getItemRect(item);
+      if (r.x1 < minX) minX = r.x1;
+      if (r.x2 > maxX) maxX = r.x2;
+      if (r.y1 < minY) minY = r.y1;
+      if (r.y2 > maxY) maxY = r.y2;
+    }
+
+    if (isRest) {
+      const restItem = items.find((it) => it.glyph?.startsWith('rest'));
+      if (restItem) {
+        const cx = restItem.x + 0.5;
+        const cy = restItem.y;
+        minX = Math.min(minX, cx - 0.8);
+        maxX = Math.max(maxX, cx + 0.8);
+        minY = Math.min(minY, cy - 1.2);
+        maxY = Math.max(maxY, cy + 1.2);
+      }
+    }
+
+    const paddedMinX = minX - 0.4;
+    const paddedMaxX = maxX + 0.4;
+    const paddedMinY = minY - 0.4;
+    const paddedMaxY = maxY + 0.4;
+
+    areas.push({
+      eventId,
+      kind: isRest ? 'rest' : 'note',
+      minX: paddedMinX,
+      maxX: paddedMaxX,
+      minY: paddedMinY,
+      maxY: paddedMaxY,
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2,
+    });
+  }
+  return areas;
+}
+
+/**
+ * Finds the event hit at pointer coordinates (x, y) in staff spaces relative to system.
+ * Overlaps resolve to the event with the closest center. Returns null on empty measure space.
+ */
+export function hitTestEvent(
+  layout: LayoutResult,
+  systemIndex: number,
+  x: number,
+  y: number
+): { eventId: string; kind: 'note' | 'rest' } | null {
+  const system = layout.systems[systemIndex];
+  if (!system) return null;
+
+  const areas = computeEventHitBoxes(system);
+  let best: EventHitArea | null = null;
+  let bestDistSq = Infinity;
+
+  for (const area of areas) {
+    if (x >= area.minX && x <= area.maxX && y >= area.minY && y <= area.maxY) {
+      const distSq = (x - area.centerX) ** 2 + (y - area.centerY) ** 2;
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq;
+        best = area;
+      }
+    }
+  }
+
+  return best ? { eventId: best.eventId, kind: best.kind } : null;
+}
+
+/**
+ * Clamps a manual override offset for an event so it stays within [-4, +4] dx,
+ * [-6, +6] dy (for rests; 0 for notes/chords), and strictly within its measure bounds.
+ */
+export function clampOverrideOffset(
+  items: LayoutItem[],
+  measureBounds: SystemMeasureBounds,
+  rawDx: number,
+  rawDy: number,
+  isRest: boolean,
+  existingAppliedDx = 0
+): { dx: number; dy: number; isAtLimit: boolean } {
+  let evMinX = Infinity;
+  let evMaxX = -Infinity;
+
+  for (const it of items) {
+    if (it.hidden) continue;
+    const r = getItemRect(it);
+    // Unshifted bounds = current rendered position minus existingAppliedDx
+    const unshiftedX1 = r.x1 - existingAppliedDx;
+    const unshiftedX2 = r.x2 - existingAppliedDx;
+    if (unshiftedX1 < evMinX) evMinX = unshiftedX1;
+    if (unshiftedX2 > evMaxX) evMaxX = unshiftedX2;
+  }
+
+  if (!isFinite(evMinX) || !isFinite(evMaxX)) {
+    return { dx: 0, dy: 0, isAtLimit: false };
+  }
+
+  const minAllowedDx = Math.max(-4, measureBounds.leftBound - evMinX);
+  const maxAllowedDx = Math.min(4, measureBounds.rightBound - evMaxX);
+
+  let clampedDx = rawDx;
+  let atLimitX = false;
+
+  if (minAllowedDx <= maxAllowedDx) {
+    if (rawDx <= minAllowedDx) {
+      clampedDx = Number(minAllowedDx.toFixed(4));
+      atLimitX = true;
+    } else if (rawDx >= maxAllowedDx) {
+      clampedDx = Number(maxAllowedDx.toFixed(4));
+      atLimitX = true;
+    }
+  } else {
+    clampedDx = 0;
+    atLimitX = true;
+  }
+
+  let clampedDy = 0;
+  let atLimitY = false;
+
+  if (isRest) {
+    clampedDy = rawDy;
+    if (rawDy <= -6) {
+      clampedDy = -6;
+      atLimitY = true;
+    } else if (rawDy >= 6) {
+      clampedDy = 6;
+      atLimitY = true;
+    }
+  }
+
+  return {
+    dx: clampedDx === 0 ? 0 : clampedDx,
+    dy: clampedDy === 0 ? 0 : clampedDy,
+    isAtLimit: atLimitX || atLimitY,
+  };
+}
 
 /**
  * Checks if a pointer movement exceeds the drag initiation threshold (default 4px).

@@ -317,6 +317,22 @@ export function clearOverride(elementId: Id): Command {
 }
 
 /**
+ * Clears all manual visual layout overrides across the entire score in one undoable step.
+ *
+ * @returns An executable Command.
+ */
+export function clearAllOverrides(): Command {
+  return {
+    name: 'clearAllOverrides',
+    apply(score: Score): Score {
+      return produce(score, (draft) => {
+        draft.overrides = {};
+      });
+    },
+  };
+}
+
+/**
  * Creates a command that replaces a note or chord with a rest of identical duration.
  * If the target event is already a rest, performs no changes.
  *
