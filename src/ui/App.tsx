@@ -75,12 +75,16 @@ const EditorShell: React.FC = () => {
     applyEventOverride,
     clearEventOverride,
     hasSelectedOverride,
+    selectedOverride,
+    changeEventPitch,
   } = useEditor();
 
   const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState<boolean>(false);
   const [perfSamples, setPerfSamples] = useState<PerfSample[]>([]);
   const [hoverPitch, setHoverPitch] = useState<Pitch | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ pitch: Pitch; measureNumber: number } | null>(null);
+  const [dragStatus, setDragStatus] = useState<string | null>(null);
 
   const handleCreateNewScore = (config: NewScoreConfig) => {
     const t0 = performance.now();
@@ -422,9 +426,14 @@ const EditorShell: React.FC = () => {
           setActiveDuration(action.baseType);
           setIsRestSelected(false);
         } else if (action.type === 'nudge-override') {
-          if (selectedEventId) {
-            applyEventOverride(selectedEventId, action.dx, action.dy);
-            recordSample('Alt+Arrow');
+          if (selectedEventId && selectedEventInfo) {
+            if (action.dy !== 0 && (selectedEventInfo.isNote || selectedEventInfo.isChord)) {
+              triggerRejectedError(t('status.noVerticalOffset'));
+              recordSample('Alt+Arrow');
+            } else {
+              applyEventOverride(selectedEventId, action.dx, action.dy);
+              recordSample('Alt+Arrow');
+            }
           }
         }
       }
@@ -435,6 +444,7 @@ const EditorShell: React.FC = () => {
   }, [
     isInputMode,
     selectedEventId,
+    selectedEventInfo,
     executeCommand,
     undo,
     redo,
@@ -496,7 +506,10 @@ const EditorShell: React.FC = () => {
         onSelectMeasure={setCursorToMeasure}
         onEnterPitchDirect={enterPitchDirect}
         onApplyOverride={applyEventOverride}
+        onChangePitch={changeEventPitch}
         onHoverPitch={setHoverPitch}
+        onHoverInfo={setHoverInfo}
+        onDragStatus={setDragStatus}
       />
       <StatusBar
         selection={selectedEventInfo}
@@ -505,7 +518,10 @@ const EditorShell: React.FC = () => {
         currentMeasureNumber={currentMeasureNumber}
         rejectedMessage={rejectedError}
         hasOverride={hasSelectedOverride}
+        override={selectedOverride}
         hoverPitch={hoverPitch}
+        hoverInfo={hoverInfo}
+        dragStatus={dragStatus}
       />
 
       <NewScoreModal

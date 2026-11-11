@@ -736,6 +736,20 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
     });
   }
 
+  // Build lookup of event IDs to their kind for layout override rules
+  const eventKindMap = new Map<string, string>();
+  for (const part of score.parts) {
+    for (const st of part.staves) {
+      for (const mId of Object.keys(st.measures)) {
+        for (const vc of st.measures[mId].voices) {
+          for (const ev of vc.events) {
+            eventKindMap.set(ev.id, ev.kind);
+          }
+        }
+      }
+    }
+  }
+
   // Apply visual overrides (both element-level and event-level overrides apply)
   for (const sys of systems) {
     for (const item of sys.items) {
@@ -746,11 +760,14 @@ export function layoutScore(score: Score, options: LayoutOptions = {}): LayoutRe
       const dx = (itemOverride?.dx ?? 0) + (evOverride?.dx ?? 0);
       const dy = (itemOverride?.dy ?? 0) + (evOverride?.dy ?? 0);
 
+      // Manual positioning: notes and chords ignore dy (only pitch changes affect vertical position)
+      const isNoteOrChord = item.eventId ? eventKindMap.get(item.eventId) === 'note' : false;
+
       if (dx !== 0) {
         item.x += dx;
         if (item.x2 !== undefined) item.x2 += dx;
       }
-      if (dy !== 0) {
+      if (dy !== 0 && !isNoteOrChord) {
         item.y += dy;
         if (item.y2 !== undefined) item.y2 += dy;
       }

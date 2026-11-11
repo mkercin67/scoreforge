@@ -116,8 +116,30 @@ describe('layoutScore', () => {
     const layoutAfter = layoutScore(score);
     const itemAfter = layoutAfter.items.find((it) => it.id === note.id)!;
 
+    // Note: dx is applied, dy is ignored in layout
     expect(itemAfter.x).toBeCloseTo(itemBefore.x + 3.5, 5);
-    expect(itemAfter.y).toBeCloseTo(itemBefore.y - 1.25, 5);
+    expect(itemAfter.y).toBeCloseTo(itemBefore.y, 5);
+
+    // Rest: both dx and dy are applied in layout
+    const rest = createRest({ baseType: 'quarter' });
+    const scoreRest = createScore();
+    const mRest = createMeasure();
+    const pRest = createPart();
+    scoreRest.measures.push(mRest);
+    scoreRest.parts.push(pRest);
+    pRest.staves[0].measures[mRest.id] = {
+      voices: [{ id: 'v1', events: [rest] }],
+    };
+
+    const layoutRestBefore = layoutScore(scoreRest);
+    const restItemBefore = layoutRestBefore.items.find((it) => it.id === rest.id)!;
+
+    scoreRest.overrides[rest.id] = { dx: 2.0, dy: -1.5 };
+    const layoutRestAfter = layoutScore(scoreRest);
+    const restItemAfter = layoutRestAfter.items.find((it) => it.id === rest.id)!;
+
+    expect(restItemAfter.x).toBeCloseTo(restItemBefore.x + 2.0, 5);
+    expect(restItemAfter.y).toBeCloseTo(restItemBefore.y - 1.5, 5);
   });
 
   it('wraps measures into a second system when system width is exceeded', () => {
@@ -221,8 +243,8 @@ describe('layoutScore', () => {
     expect(lastBarlineRightEdge).toBeCloseTo(targetW, 1);
   });
 
-  describe('multi-width layout test suite for demo score (widths: 500, 700, 900, 1200, 1600)', () => {
-    const testWidths = [500, 700, 900, 1200, 1600];
+  describe('multi-width layout test suite for demo score (widths: 320, 385, 460, 600, 900)', () => {
+    const testWidths = [320, 385, 460, 600, 900];
 
     testWidths.forEach((targetW) => {
       it(`satisfies all layout invariants at width ${targetW}`, () => {

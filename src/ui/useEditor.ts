@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Command, History, setOverride, clearOverride } from '../core/commands';
+import { Command, History, setOverride, clearOverride, changePitch } from '../core/commands';
 import {
   BaseDurationType,
   NoteEvent,
@@ -313,6 +313,14 @@ export function useEditor(initialScore?: Score) {
     []
   );
 
+  const changeEventPitch = useCallback(
+    (eventId: string, pitches: Pitch[]) => {
+      const nextScore = historyRef.current.do(changePitch(eventId, pitches));
+      setScore(nextScore);
+    },
+    []
+  );
+
   const clearEventOverride = useCallback(
     (eventId?: string) => {
       const targetId = eventId ?? selectedEventId;
@@ -495,6 +503,8 @@ export function useEditor(initialScore?: Score) {
     applyEventOverride,
     clearEventOverride,
     hasSelectedOverride: Boolean(selectedEventId && score.overrides[selectedEventId]),
+    selectedOverride: selectedEventId ? score.overrides[selectedEventId] : undefined,
+    changeEventPitch,
     enterRestAtCursor,
     moveCursorDirection,
   };

@@ -72,5 +72,8 @@
   "diagnostics.title": "Tanılama Paneli",
   "diagnostics.copy": "Kopyala",
   "diagnostics.copied": "Kopyalandı!",
-  "diagnostics.close": "Kapat"
+  "diagnostics.close": "Kapat",
+  "status.noVerticalOffset": "Notalarda dikey konum değiştirilemez, perde için ok tuşlarını kullanın",
+  "status.pointerInfo": "İşaretçi: Ölçü {measure} · {pitch}",
+  "status.overrideOffset": "dx {dx} · dy {dy}"
 }

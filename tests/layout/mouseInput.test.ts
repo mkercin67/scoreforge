@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { yToStaffPosition } from '../../src/layout/pitch';
+import { yToStaffPosition, pitchToStaffPosition, staffPositionToY, getLedgerLineYs } from '../../src/layout/pitch';
 import { xToCursor, snapDragOffset, applyAxisLock, isDragPastThreshold } from '../../src/layout/mouse';
 import { layoutScore } from '../../src/layout/layoutScore';
-import { createEmptyScore, createNote, createPitch } from '../../src/core/factory';
-import { History, setOverride, clearOverride } from '../../src/core/commands';
+import { createEmptyScore, createNote, createPitch, createRest } from '../../src/core/factory';
+import { History, setOverride, clearOverride, changePitch } from '../../src/core/commands';
+import { NoteEvent } from '../../src/core/model';
 
 describe('Milestone 3c: Mouse Input & Manual Positioning', () => {
   describe('yToStaffPosition', () => {
@@ -156,6 +157,25 @@ describe('Milestone 3c: Mouse Input & Manual Positioning', () => {
       expect(redone).not.toBeNull();
       expect(history.score.overrides[eventId]).toEqual({ dx: 1.0, dy: -1.0 });
     });
+
+    it('nudge after undo never leaks values from a previous drag override (Bug 1)', () => {
+      const score = createEmptyScore({ measures: 4 });
+      const eventId = score.parts[0].staves[0].measures[score.measures[0].id].voices[0].events[0].id;
+      const history = new History(score);
+
+      // 1. Drag applied
+      history.do(setOverride(eventId, { dx: 1.0, dy: -1.0 }));
+      expect(history.score.overrides[eventId]).toEqual({ dx: 1.0, dy: -1.0 });
+
+      // 2. Undo restores initial state (no override)
+      history.undo();
+      expect(history.score.overrides[eventId]).toBeUndefined();
+
+      // 3. Nudge applied: dx = 0.25 (horizontal nudge)
+      history.do(setOverride(eventId, { dx: 0.25 }, true));
+      expect(history.score.overrides[eventId]?.dx).toBe(0.25);
+      expect(history.score.overrides[eventId]?.dy).toBeUndefined();
+    });
   });
 
   describe('layout with override', () => {
@@ -187,13 +207,13 @@ describe('Milestone 3c: Mouse Input & Manual Positioning', () => {
       const modItem1 = modLayout.systems[0].items.find((it) => it.eventId === ev1.id && it.kind === 'glyph');
       const modBarlineM1 = modLayout.systems[0].items.find((it) => it.id === `barline-${score.measures[0].id}`);
 
-      // ev0 glyph shifted by dx, dy
+      // ev0 glyph shifted by dx, dy is ignored for notes
       expect(modItem0!.x).toBeCloseTo(baseItem0!.x + 2.0);
-      expect(modItem0!.y).toBeCloseTo(baseItem0!.y - 1.5);
+      expect(modItem0!.y).toBeCloseTo(baseItem0!.y);
 
-      // ev0 stem shifted by dx, dy
+      // ev0 stem shifted by dx, dy is ignored for notes
       expect(modStem0!.x).toBeCloseTo(baseStem0!.x + 2.0);
-      expect(modStem0!.y).toBeCloseTo(baseStem0!.y - 1.5);
+      expect(modStem0!.y).toBeCloseTo(baseStem0!.y);
 
       // Neighbor ev1 unchanged
       expect(modItem1!.x).toBeCloseTo(baseItem1!.x);
@@ -204,6 +224,33 @@ describe('Milestone 3c: Mouse Input & Manual Positioning', () => {
 
       // System width unchanged
       expect(modLayout.systems[0].width).toBeCloseTo(baseSysWidth);
+    });
+
+    it('layout ignores dy for notes and chords but applies dy for rests', () => {
+      const score = createEmptyScore({ measures: 2 });
+      const voice = score.parts[0].staves[0].measures[score.measures[0].id].voices[0];
+      const evNote = createNote({ pitches: [createPitch('C', 4)], baseType: 'quarter' });
+      const evRest = createRest({ baseType: 'quarter' });
+      voice.events = [evNote, evRest];
+
+      const baseLayout = layoutScore(score, { width: 100 });
+      const baseNoteItem = baseLayout.systems[0].items.find((it) => it.eventId === evNote.id && it.kind === 'glyph');
+      const baseRestItem = baseLayout.systems[0].items.find((it) => it.eventId === evRest.id && it.kind === 'glyph');
+
+      let modScore = setOverride(evNote.id, { dx: 1.0, dy: -2.0 }).apply(score);
+      modScore = setOverride(evRest.id, { dx: 0.5, dy: -1.5 }).apply(modScore);
+
+      const modLayout = layoutScore(modScore, { width: 100 });
+      const modNoteItem = modLayout.systems[0].items.find((it) => it.eventId === evNote.id && it.kind === 'glyph');
+      const modRestItem = modLayout.systems[0].items.find((it) => it.eventId === evRest.id && it.kind === 'glyph');
+
+      // Note: dx is applied (+1.0), dy is IGNORED (y unchanged!)
+      expect(modNoteItem!.x).toBeCloseTo(baseNoteItem!.x + 1.0);
+      expect(modNoteItem!.y).toBeCloseTo(baseNoteItem!.y);
+
+      // Rest: dx is applied (+0.5), dy IS applied (-1.5)
+      expect(modRestItem!.x).toBeCloseTo(baseRestItem!.x + 0.5);
+      expect(modRestItem!.y).toBeCloseTo(baseRestItem!.y - 1.5);
     });
   });
 
@@ -240,6 +287,149 @@ describe('Milestone 3c: Mouse Input & Manual Positioning', () => {
         expect(cursorInM2?.measureId).toBe(score.measures[1].id);
         expect(cursorInM2?.tick).toBe(0);
       }
+    });
+
+    it('returns tick 0 across the entire measure when measure contains only rests (Bug 4)', () => {
+      const score = createEmptyScore({ measures: 4 });
+      // Non-wholeMeasure rests in measure 2 (e.g. after convert-to-rest)
+      const m2Voice = score.parts[0].staves[0].measures[score.measures[1].id].voices[0];
+      m2Voice.events = [createRest({ baseType: 'half' }), createRest({ baseType: 'half' })];
+
+      const layout = layoutScore(score, { width: 100 });
+      const b0 = layout.systems[0].items.find((it) => it.id === `barline-${score.measures[0].id}`)!;
+      const b1 = layout.systems[0].items.find((it) => it.id === `barline-${score.measures[1].id}`)!;
+
+      // Click near start of M2 (right after barline 0) -> tick 0
+      const cStart = xToCursor(layout, 0, b0.x + 0.5);
+      expect(cStart?.measureId).toBe(score.measures[1].id);
+      expect(cStart?.tick).toBe(0);
+
+      // Click at middle of M2 -> tick 0
+      const cMid = xToCursor(layout, 0, (b0.x + b1.x) / 2);
+      expect(cMid?.measureId).toBe(score.measures[1].id);
+      expect(cMid?.tick).toBe(0);
+
+      // Click at right edge of M2 -> tick 0 (never falls through to 1920)
+      const cEnd = xToCursor(layout, 0, b1.x - 0.2);
+      expect(cEnd?.measureId).toBe(score.measures[1].id);
+      expect(cEnd?.tick).toBe(0);
+    });
+
+    it('returns rest start tick when clicking to the right of a rest that ends a mixed measure', () => {
+      const score = createEmptyScore({ measures: 4 });
+      const m0Id = score.measures[0].id;
+      // Quarter note (ticks 0..960) then quarter rest (ticks 960..1920)
+      score.parts[0].staves[0].measures[m0Id] = {
+        voices: [
+          {
+            id: 'v1',
+            events: [
+              createNote({ pitches: [createPitch('C', 4)], baseType: 'quarter' }),
+              createRest({ baseType: 'quarter' }),
+            ],
+          },
+        ],
+      };
+
+      const layout = layoutScore(score, { width: 100 });
+      const b0 = layout.systems[0].items.find((it) => it.id === `barline-${score.measures[0].id}`)!;
+
+      // Click at the far right of measure 1 (beyond the rest glyph)
+      const cFarRight = xToCursor(layout, 0, b0.x - 0.2, score);
+      expect(cFarRight?.measureId).toBe(score.measures[0].id);
+      expect(cFarRight?.tick).toBe(960);
+    });
+  });
+
+  describe('Section A: New Interaction Model (Vertical pitch drag & Alt+drag)', () => {
+    it('shifts single note pitch in 0.5 staff-space steps with clamping and key signature', () => {
+      const clef = { sign: 'G' as const, line: 2 };
+      // C5 has stepPos = 5 (y = 1.5)
+      const c5 = { step: 'C' as const, alter: 0, octave: 5 };
+      expect(pitchToStaffPosition(c5, clef)).toBe(5);
+
+      // Drag up by 1 staff space -> deltaStep = +2 -> stepPos = 7 (E5)
+      const targetUp1 = yToStaffPosition(clef, staffPositionToY(5 + 2), 0);
+      expect(targetUp1).toEqual({ step: 'E', alter: 0, octave: 5 });
+
+      // Drag up by 0.5 staff space -> deltaStep = +1 -> stepPos = 6 (D5)
+      const targetUp05 = yToStaffPosition(clef, staffPositionToY(5 + 1), 0);
+      expect(targetUp05).toEqual({ step: 'D', alter: 0, octave: 5 });
+
+      // In F major (keySig = -1), B4 dragged to B4 has alter = -1 (Bb4)
+      const targetBb = yToStaffPosition(clef, staffPositionToY(4), -1);
+      expect(targetBb).toEqual({ step: 'B', alter: -1, octave: 4 });
+
+      // Clamping: dragging C5 far down is clamped to stepPos = -3 (B3)
+      const targetClampedLow = yToStaffPosition(clef, staffPositionToY(-10), 0);
+      expect(targetClampedLow).toEqual({ step: 'B', alter: 0, octave: 3 });
+
+      // Clamping: dragging C5 far up is clamped to stepPos = 11 (B5)
+      const targetClampedHigh = yToStaffPosition(clef, staffPositionToY(20), 0);
+      expect(targetClampedHigh).toEqual({ step: 'B', alter: 0, octave: 5 });
+    });
+
+    it('shifts chord pitches by the exact same diatonic step count', () => {
+      const clef = { sign: 'G' as const, line: 2 };
+      // C major chord: C4 (step -2), E4 (step 0), G4 (step 2)
+      const chord = [
+        { step: 'C' as const, alter: 0, octave: 4 },
+        { step: 'E' as const, alter: 0, octave: 4 },
+        { step: 'G' as const, alter: 0, octave: 4 },
+      ];
+      const initialSteps = chord.map((p) => pitchToStaffPosition(p, clef));
+      expect(initialSteps).toEqual([-2, 0, 2]);
+
+      // Shift upward by 2 diatonic steps:
+      // C4 -> E4 (step 0), E4 -> G4 (step 2), G4 -> B4 (step 4)
+      const shiftedChord = initialSteps.map((sp) => yToStaffPosition(clef, staffPositionToY(sp + 2), 0));
+      expect(shiftedChord).toEqual([
+        { step: 'E', alter: 0, octave: 4 },
+        { step: 'G', alter: 0, octave: 4 },
+        { step: 'B', alter: 0, octave: 4 },
+      ]);
+    });
+
+    it('computes ledger lines correctly for pitches dragged in and out of staff and never floats', () => {
+      // Step 4 (B4, middle line) -> inside staff -> 0 ledger lines
+      expect(getLedgerLineYs(4)).toEqual([]);
+
+      // Step 8 (F5, top line) -> inside staff -> 0 ledger lines
+      expect(getLedgerLineYs(8)).toEqual([]);
+
+      // Step 9 (G5, space above top line) -> inside staff margin -> 0 ledger lines
+      expect(getLedgerLineYs(9)).toEqual([]);
+
+      // Step 10 (A5, 1st ledger line above staff) -> ledger line at y = -1.0
+      expect(getLedgerLineYs(10)).toEqual([-1.0]);
+
+      // Step 11 (B5, space above 1st ledger line) -> ledger line at y = -1.0
+      expect(getLedgerLineYs(11)).toEqual([-1.0]);
+
+      // Step -2 (C4, 1st ledger line below staff) -> ledger line at y = 5.0
+      expect(getLedgerLineYs(-2)).toEqual([5.0]);
+
+      // Step -3 (B3, space below 1st ledger line) -> ledger line at y = 5.0
+      expect(getLedgerLineYs(-3)).toEqual([5.0]);
+    });
+
+    it('applies changePitch command and undoes in exactly ONE step', () => {
+      const score = createEmptyScore({ measures: 4 });
+      const m0 = score.measures[0].id;
+      const ev = createNote({ pitches: [{ step: 'C', alter: 0, octave: 4 }], baseType: 'quarter' });
+      score.parts[0].staves[0].measures[m0] = { voices: [{ id: 'v1', events: [ev] }] };
+
+      const history = new History(score);
+      expect((history.score.parts[0].staves[0].measures[m0].voices[0].events[0] as NoteEvent).pitches[0].step).toBe('C');
+
+      // Drag drops note onto E4:
+      const s1 = history.do(changePitch(ev.id, [{ step: 'E', alter: 0, octave: 4 }]));
+      expect((s1.parts[0].staves[0].measures[m0].voices[0].events[0] as NoteEvent).pitches[0].step).toBe('E');
+
+      // Undo restores C4 in exactly one step
+      const undone = history.undo();
+      expect(undone).not.toBeNull();
+      expect((history.score.parts[0].staves[0].measures[m0].voices[0].events[0] as NoteEvent).pitches[0].step).toBe('C');
     });
   });
 });

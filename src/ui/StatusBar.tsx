@@ -8,6 +8,11 @@ import { BaseDurationType, Pitch } from '../core/model';
 import { formatPitchName, useI18n } from './i18n';
 import { SelectedEventInfo } from './useEditor';
 
+export interface HoverInfo {
+  pitch: Pitch;
+  measureNumber: number;
+}
+
 export interface StatusBarProps {
   selection: SelectedEventInfo | null;
   isInputMode?: boolean;
@@ -15,7 +20,10 @@ export interface StatusBarProps {
   currentMeasureNumber?: number;
   rejectedMessage?: string | null;
   hasOverride?: boolean;
+  override?: { dx?: number; dy?: number };
   hoverPitch?: Pitch | null;
+  hoverInfo?: HoverInfo | null;
+  dragStatus?: string | null;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -25,7 +33,10 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   currentMeasureNumber = 1,
   rejectedMessage = null,
   hasOverride = false,
+  override,
   hoverPitch = null,
+  hoverInfo = null,
+  dragStatus = null,
 }) => {
   const { t, language, noteNameStyle } = useI18n();
 
@@ -40,24 +51,40 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       );
     }
 
-    // 2. Note Input Mode info: "Nota girişi · Dörtlük nota · Ölçü 2"
+    // 2. Active drag status (e.g. target pitch during pitch drag or "dx +0.50" during Alt+drag)
+    if (dragStatus) {
+      return (
+        <span style={{ color: '#2563eb', fontWeight: 600 }}>
+          {dragStatus}
+        </span>
+      );
+    }
+
+    // 3. Note Input Mode info: "Nota girişi · Dörtlük nota · Ölçü 1 · İşaretçi: Ölçü 2 · Fa4"
     if (isInputMode) {
       const durationText = t(`duration.${activeDuration}.note`);
-      const hoverText = hoverPitch
-        ? ` · ${formatPitchName(hoverPitch, noteNameStyle, language)}`
-        : '';
+      let pointerText = '';
+      if (hoverInfo) {
+        pointerText = ` · ${t('status.pointerInfo', {
+          measure: hoverInfo.measureNumber,
+          pitch: formatPitchName(hoverInfo.pitch, noteNameStyle, language),
+        })}`;
+      } else if (hoverPitch) {
+        pointerText = ` · ${formatPitchName(hoverPitch, noteNameStyle, language)}`;
+      }
+
       return (
         <span style={{ color: '#1d4ed8', fontWeight: 600 }}>
           {t('status.inputMode', {
             duration: durationText,
             measure: currentMeasureNumber,
           })}
-          {hoverText}
+          {pointerText}
         </span>
       );
     }
 
-    // 3. Normal selection inspection
+    // 4. Normal selection inspection
     if (!selection) {
       return (
         <span style={{ color: '#64748b', fontStyle: 'italic' }}>
@@ -69,6 +96,25 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     const { measureNumber, isChord, isNote, isRest, pitches, baseType } = selection;
     const durationKey = isRest ? `duration.${baseType}.rest` : `duration.${baseType}.note`;
     const durationText = t(durationKey);
+
+    const overrideBadge = (hasOverride || override) ? (
+      <span
+        style={{
+          marginLeft: '0.6rem',
+          padding: '0.1rem 0.45rem',
+          fontSize: '0.75rem',
+          backgroundColor: '#e0e7ff',
+          color: '#3730a3',
+          borderRadius: '4px',
+          fontWeight: 600,
+          fontFamily: 'monospace',
+        }}
+      >
+        {override
+          ? `dx ${(override.dx ?? 0).toFixed(2)} · dy ${(override.dy ?? 0).toFixed(2)}`
+          : t('status.manuallyPositioned')}
+      </span>
+    ) : null;
 
     if (isChord) {
       const pitchesText = pitches
@@ -83,21 +129,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               duration: durationText,
             })}
           </span>
-          {hasOverride && (
-            <span
-              style={{
-                marginLeft: '0.6rem',
-                padding: '0.1rem 0.45rem',
-                fontSize: '0.75rem',
-                backgroundColor: '#e0e7ff',
-                color: '#3730a3',
-                borderRadius: '4px',
-                fontWeight: 600,
-              }}
-            >
-              {t('status.manuallyPositioned')}
-            </span>
-          )}
+          {overrideBadge}
         </span>
       );
     }
@@ -113,32 +145,21 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               duration: durationText,
             })}
           </span>
-          {hasOverride && (
-            <span
-              style={{
-                marginLeft: '0.6rem',
-                padding: '0.1rem 0.45rem',
-                fontSize: '0.75rem',
-                backgroundColor: '#e0e7ff',
-                color: '#3730a3',
-                borderRadius: '4px',
-                fontWeight: 600,
-              }}
-            >
-              {t('status.manuallyPositioned')}
-            </span>
-          )}
+          {overrideBadge}
         </span>
       );
     }
 
     if (isRest) {
       return (
-        <span>
-          {t('status.restInfo', {
-            measure: measureNumber,
-            duration: durationText,
-          })}
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <span>
+            {t('status.restInfo', {
+              measure: measureNumber,
+              duration: durationText,
+            })}
+          </span>
+          {overrideBadge}
         </span>
       );
     }
@@ -152,34 +173,20 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0.6rem 1.5rem',
+        padding: '0.45rem 1.25rem',
         backgroundColor: '#f8fafc',
         borderTop: '1px solid #e2e8f0',
         fontSize: '0.875rem',
         color: '#334155',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
+        minHeight: '2.4rem',
+        boxSizing: 'border-box',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontWeight: 500 }}>
-        <span
-          style={{
-            display: 'inline-block',
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            backgroundColor: rejectedMessage
-              ? '#dc2626'
-              : isInputMode
-              ? '#2563eb'
-              : selection
-              ? '#2563eb'
-              : '#94a3b8',
-          }}
-        />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         {renderStatusContent()}
       </div>
 
-      <div style={{ display: 'flex', gap: '1rem', color: '#64748b', fontSize: '0.8rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', color: '#64748b', fontSize: '0.775rem' }}>
         <span>{t('shortcut.transpose')}</span>
         <span>•</span>
         <span>{t('shortcut.delete')}</span>

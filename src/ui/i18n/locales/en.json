@@ -72,5 +72,8 @@
   "diagnostics.title": "Diagnostics Panel",
   "diagnostics.copy": "Copy",
   "diagnostics.copied": "Copied!",
-  "diagnostics.close": "Close"
+  "diagnostics.close": "Close",
+  "status.noVerticalOffset": "Vertical offset is disabled on notes, use arrow keys for pitch",
+  "status.pointerInfo": "Pointer: Measure {measure} · {pitch}",
+  "status.overrideOffset": "dx {dx} · dy {dy}"
 }

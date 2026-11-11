@@ -151,19 +151,18 @@ export function xToCursor(
     return { measureId: targetMeasure.measureId, tick: 0 };
   }
 
-  // Check if empty measure (single whole rest)
-  if (
-    voice.events.length === 1 &&
-    voice.events[0].kind === 'rest' &&
-    Boolean((voice.events[0] as any).wholeMeasure)
-  ) {
+  // If all events in the measure are rests, clicking anywhere in the measure targets tick 0
+  if (voice.events.every((ev) => ev.kind === 'rest')) {
     return { measureId: targetMeasure.measureId, tick: 0 };
   }
 
   let curTick = 0;
-  for (const ev of voice.events) {
+  for (let i = 0; i < voice.events.length; i++) {
+    const ev = voice.events[i];
     const evStartTick = curTick;
     curTick += ev.duration;
+
+    const isLastEvent = i === voice.events.length - 1;
 
     // Find visual elements belonging to this event in the system
     const evItems = system.items.filter((it) => it.eventId === ev.id && !it.hidden);
@@ -173,6 +172,11 @@ export function xToCursor(
 
     // If pointer is inside or before this event, this is the matched event
     if (x <= maxX) {
+      return { measureId: targetMeasure.measureId, tick: evStartTick };
+    }
+
+    // If this is the last event and it's a rest, its space extends to the end of the measure
+    if (isLastEvent && ev.kind === 'rest' && x <= targetMeasure.endX) {
       return { measureId: targetMeasure.measureId, tick: evStartTick };
     }
   }
