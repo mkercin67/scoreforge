@@ -5,10 +5,12 @@
  * keyboard interaction, and automated verification states.
  */
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { convertToRest, setOverride, transposeEvent } from '../core/commands';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { convertToRest, setOverride, transposeEvent, setScoreMetadata } from '../core/commands';
 import { createEmptyScore } from '../core/factory';
 import { Pitch, Score } from '../core/model';
+import { serializeScore, deserializeScore } from '../io/json';
+import { saveAutosave, loadAutosave, clearAutosave } from '../io/storage';
 import { LayoutResult } from '../layout/types';
 import { Diagnostics, PerfSample } from './Diagnostics';
 import { I18nProvider, useI18n } from './i18n';
@@ -91,9 +93,20 @@ const EditorShell: React.FC = () => {
     hasAnyOverride,
     selectedOverride,
     changeEventPitch,
+    isDirty,
+    markClean,
   } = useEditor();
 
   const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
+  const [isScoreInfoOpen, setIsScoreInfoOpen] = useState<boolean>(false);
+  const [scoreTitleInput, setScoreTitleInput] = useState<string>(score.meta.title || '');
+  const [scoreComposerInput, setScoreComposerInput] = useState<string>(score.meta.composer || '');
+  const [isUnsavedPromptOpen, setIsUnsavedPromptOpen] = useState<boolean>(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const [isRestorePromptOpen, setIsRestorePromptOpen] = useState<boolean>(false);
+  const [restoreData, setRestoreData] = useState<{ score: Score; savedAt: string } | null>(null);
+  const [statusToast, setStatusToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isResetAllConfirmOpen, setIsResetAllConfirmOpen] = useState<boolean>(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState<boolean>(false);
   const [perfSamples, setPerfSamples] = useState<PerfSample[]>([]);
@@ -113,6 +126,162 @@ const EditorShell: React.FC = () => {
   useEffect(() => {
     setDragStatus(null);
   }, [selectedEventId, mode]);
+
+  // Tab / Window Title with * when dirty
+  useEffect(() => {
+    const prefix = isDirty ? '* ' : '';
+    const title = score.meta.title || 'ScoreForge';
+    document.title = `${prefix}${title} — ScoreForge`;
+  }, [isDirty, score.meta.title]);
+
+  // Warn before leaving if dirty
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  // 2s debounced autosave to IndexedDB
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      try {
+        const t0 = performance.now();
+        await saveAutosave(score);
+        const dt = performance.now() - t0;
+        (window as any).__scoreforge_last_autosave_ms = dt;
+      } catch (err) {
+        console.warn('Autosave error:', err);
+      }
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [score]);
+
+  // Startup autosave check
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    (window as any).__checkAutosaveForTest = async () => {
+      const record = await loadAutosave();
+      if (record && record.score) {
+        setRestoreData(record);
+        setIsRestorePromptOpen(true);
+      }
+    };
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('state')) return; // skip recovery modal in verification states
+
+    loadAutosave().then((record) => {
+      if (record && record.score) {
+        setRestoreData(record);
+        setIsRestorePromptOpen(true);
+      }
+    }).catch((e) => console.warn('Could not check autosave:', e));
+  }, []);
+
+  // Auto-dismiss status toast after 3s
+  useEffect(() => {
+    if (!statusToast) return;
+    const timer = window.setTimeout(() => setStatusToast(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [statusToast]);
+
+  const handleSave = useCallback(async (saveAs = false) => {
+    console.log('[DEBUG] handleSave called with saveAs =', saveAs);
+    try {
+      const envelopeJson = serializeScore(score, 2, true);
+      const cleanTitle = (score.meta.title || 'adsiz').trim().toLowerCase().replace(/[^a-z0-9]/gi, '_');
+      const filename = `${cleanTitle}.sfscore`;
+
+      const hasNativePicker =
+        !saveAs &&
+        typeof window !== 'undefined' &&
+        'showSaveFilePicker' in window &&
+        !window.navigator.webdriver &&
+        !(window as any).__disableNativePickerForTest;
+
+      if (hasNativePicker) {
+        try {
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: filename,
+            types: [
+              {
+                description: 'ScoreForge Score (*.sfscore)',
+                accept: { 'application/json': ['.sfscore'] },
+              },
+            ],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(envelopeJson);
+          await writable.close();
+          markClean();
+          setStatusToast({ message: t('status.saveSuccess'), type: 'success' });
+          return;
+        } catch (pickerErr: any) {
+          if (pickerErr.name === 'AbortError') return;
+          // Fallback to download
+        }
+      }
+
+      // Blob download fallback
+      const blob = new Blob([envelopeJson], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      markClean();
+      setStatusToast({ message: t('status.saveSuccess'), type: 'success' });
+    } catch (err: any) {
+      console.error('Save failed:', err);
+      setStatusToast({ message: t('status.saveError'), type: 'error' });
+    }
+  }, [score, markClean, t]);
+
+  const handleOpenClick = useCallback(() => {
+    if (isDirty) {
+      setPendingAction(() => () => fileInputRef.current?.click());
+      setIsUnsavedPromptOpen(true);
+    } else {
+      fileInputRef.current?.click();
+    }
+  }, [isDirty]);
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const loaded = deserializeScore(text);
+      resetScore(loaded);
+      markClean();
+      setStatusToast({ message: t('status.saveSuccess'), type: 'success' });
+    } catch (err: any) {
+      console.error('File load failed:', err);
+      setStatusToast({ message: `${t('status.saveError')}: ${err.message || 'Geçersiz dosya'}`, type: 'error' });
+    } finally {
+      e.target.value = '';
+    }
+  }, [resetScore, markClean, t]);
+
+  const handleSaveScoreInfo = useCallback(() => {
+    executeCommand(setScoreMetadata(scoreTitleInput, scoreComposerInput));
+    setIsScoreInfoOpen(false);
+  }, [executeCommand, scoreTitleInput, scoreComposerInput]);
+
+  const handleOpenScoreInfo = useCallback(() => {
+    setScoreTitleInput(score.meta.title || '');
+    setScoreComposerInput(score.meta.composer || '');
+    setIsScoreInfoOpen(true);
+  }, [score.meta.title, score.meta.composer]);
 
   const handleCreateNewScore = (config: NewScoreConfig) => {
     const t0 = performance.now();
@@ -345,6 +514,20 @@ const EditorShell: React.FC = () => {
         (e.target as HTMLElement).blur();
       }
 
+      // Save and Open shortcuts (Ctrl+S / Cmd+S, Ctrl+O / Cmd+O)
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        if (e.code === 'KeyS' || e.key.toLowerCase() === 's') {
+          e.preventDefault();
+          handleSave(false);
+          return;
+        }
+        if (e.code === 'KeyO' || e.key.toLowerCase() === 'o') {
+          e.preventDefault();
+          handleOpenClick();
+          return;
+        }
+      }
+
       const action = mapKeyEvent(e, mode);
       if (!action) return;
 
@@ -555,7 +738,18 @@ const EditorShell: React.FC = () => {
         onResetOverride={() => selectedEventId && clearEventOverride(selectedEventId)}
         canResetAllOverrides={hasAnyOverride}
         onResetAllOverrides={() => setIsResetAllConfirmOpen(true)}
-        onOpenNewScore={() => setIsNewModalOpen(true)}
+        onOpenNewScore={() => {
+          if (isDirty) {
+            setPendingAction(() => () => setIsNewModalOpen(true));
+            setIsUnsavedPromptOpen(true);
+          } else {
+            setIsNewModalOpen(true);
+          }
+        }}
+        onOpen={handleOpenClick}
+        onSave={() => handleSave(false)}
+        onSaveAs={() => handleSave(true)}
+        onOpenScoreInfo={handleOpenScoreInfo}
         mode={mode}
         onChangeMode={setMode}
         activeDuration={activeDuration}
@@ -671,6 +865,310 @@ const EditorShell: React.FC = () => {
                 }}
               >
                 {t('dialog.confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden file input for opening .sfscore or .json */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".sfscore,.json"
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
+
+      {/* Status Toast Banner */}
+      {statusToast && (
+        <div
+          role="status"
+          className="scoreforge-toast"
+          style={{
+            position: 'fixed',
+            top: '4.5rem',
+            right: '1.5rem',
+            zIndex: 9999,
+            padding: '0.6rem 1.1rem',
+            borderRadius: '8px',
+            backgroundColor: statusToast.type === 'success' ? '#16a34a' : '#dc2626',
+            color: '#ffffff',
+            fontWeight: 600,
+            fontSize: '0.875rem',
+            boxShadow: '0 10px 15px -3px rgba(0,0,0,0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          <span>{statusToast.message}</span>
+        </div>
+      )}
+
+      {/* Score Info Modal */}
+      {isScoreInfoOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '8px',
+              padding: '1.5rem',
+              width: '380px',
+              maxWidth: '90vw',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#0f172a' }}>{t('dialog.scoreInfo.title')}</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <label style={{ fontSize: '0.85rem', color: '#475569', fontWeight: 500 }}>
+                {t('dialog.scoreInfo.scoreTitle')}
+              </label>
+              <input
+                type="text"
+                value={scoreTitleInput}
+                onChange={(e) => setScoreTitleInput(e.target.value)}
+                style={{
+                  padding: '0.45rem 0.65rem',
+                  fontSize: '0.9rem',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  outline: 'none',
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <label style={{ fontSize: '0.85rem', color: '#475569', fontWeight: 500 }}>
+                {t('dialog.scoreInfo.composer')}
+              </label>
+              <input
+                type="text"
+                value={scoreComposerInput}
+                onChange={(e) => setScoreComposerInput(e.target.value)}
+                style={{
+                  padding: '0.45rem 0.65rem',
+                  fontSize: '0.9rem',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  outline: 'none',
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => setIsScoreInfoOpen(false)}
+                style={{
+                  padding: '0.45rem 0.9rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: '#ffffff',
+                  color: '#334155',
+                  cursor: 'pointer',
+                }}
+              >
+                {t('dialog.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveScoreInfo}
+                style={{
+                  padding: '0.45rem 0.9rem',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: '#2563eb',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                }}
+              >
+                {t('dialog.scoreInfo.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unsaved Changes Confirmation Modal */}
+      {isUnsavedPromptOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '8px',
+              padding: '1.5rem',
+              width: '400px',
+              maxWidth: '90vw',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)',
+            }}
+          >
+            <h3 style={{ margin: '0 0 0.75rem 0', fontSize: '1.05rem', color: '#0f172a' }}>
+              {t('dialog.unsavedChanges.title')}
+            </h3>
+            <p style={{ margin: '0 0 1.25rem 0', fontSize: '0.9rem', color: '#475569', lineHeight: 1.5 }}>
+              {t('dialog.unsavedChanges.prompt')}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
+              <button
+                type="button"
+                data-action="cancel-unsaved"
+                onClick={() => {
+                  setIsUnsavedPromptOpen(false);
+                  setPendingAction(null);
+                }}
+                style={{
+                  padding: '0.45rem 0.9rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: '#ffffff',
+                  color: '#334155',
+                  cursor: 'pointer',
+                }}
+              >
+                {t('dialog.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsUnsavedPromptOpen(false);
+                  if (pendingAction) {
+                    const action = pendingAction;
+                    setPendingAction(null);
+                    action();
+                  }
+                }}
+                style={{
+                  padding: '0.45rem 0.9rem',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: '#dc2626',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                }}
+              >
+                {t('dialog.unsavedChanges.discardAndProceed')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Session Restore Prompt Modal */}
+      {isRestorePromptOpen && restoreData && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '8px',
+              padding: '1.5rem',
+              width: '420px',
+              maxWidth: '90vw',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)',
+            }}
+          >
+            <h3 style={{ margin: '0 0 0.75rem 0', fontSize: '1.05rem', color: '#0f172a' }}>
+              {t('dialog.restore.title')}
+            </h3>
+            <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: '#475569', lineHeight: 1.5 }}>
+              {t('dialog.restore.prompt')}
+            </p>
+            <p style={{ margin: '0 0 1.25rem 0', fontSize: '0.825rem', color: '#64748b' }}>
+              {restoreData.score.meta.title || 'Adsız Eser'} —{' '}
+              {new Date(restoreData.savedAt).toLocaleDateString('tr-TR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
+              <button
+                type="button"
+                data-action="restore-discard"
+                onClick={async () => {
+                  await clearAutosave();
+                  setIsRestorePromptOpen(false);
+                  setRestoreData(null);
+                }}
+                style={{
+                  padding: '0.45rem 0.9rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: '#ffffff',
+                  color: '#dc2626',
+                  cursor: 'pointer',
+                }}
+              >
+                {t('dialog.restore.discard')}
+              </button>
+              <button
+                type="button"
+                data-action="restore-confirm"
+                onClick={() => {
+                  resetScore(restoreData.score);
+                  markClean();
+                  setIsRestorePromptOpen(false);
+                  setRestoreData(null);
+                  setStatusToast({ message: t('status.saveSuccess'), type: 'success' });
+                }}
+                style={{
+                  padding: '0.45rem 0.9rem',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: '#2563eb',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                }}
+              >
+                {t('dialog.restore.restore')}
               </button>
             </div>
           </div>

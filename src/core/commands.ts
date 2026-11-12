@@ -30,14 +30,34 @@ export class History {
   private past: Score[] = [];
   private current: Score;
   private future: Score[] = [];
+  private cleanScore: Score;
 
   constructor(initialScore: Score) {
     this.current = initialScore;
+    this.cleanScore = initialScore;
   }
 
   /** Gets the current score state. */
   get score(): Score {
     return this.current;
+  }
+
+  /** Marks the current state as saved/clean. */
+  markClean(): void {
+    this.cleanScore = this.current;
+  }
+
+  /** Checks whether the score has unsaved changes compared to the clean state. */
+  isDirty(): boolean {
+    return this.current !== this.cleanScore;
+  }
+
+  /** Clears history and resets to a new clean score state. */
+  clear(newScore: Score): void {
+    this.past = [];
+    this.future = [];
+    this.current = newScore;
+    this.cleanScore = newScore;
   }
 
   /**
@@ -375,6 +395,26 @@ export function convertToRest(eventId: Id): Command {
   };
 }
 
+
+/**
+ * Creates a command to update score metadata (title and composer).
+ *
+ * @param title - Score title.
+ * @param composer - Composer name.
+ * @returns An executable Command.
+ */
+export function setScoreMetadata(title: string, composer: string = ''): Command {
+  return {
+    name: 'setScoreMetadata',
+    apply(score: Score): Score {
+      return produce(score, (draft) => {
+        draft.meta.title = title;
+        draft.meta.composer = composer;
+      });
+    },
+  };
+}
+
 /**
  * Creates a command that transposes the pitches of a note event by semitones.
  * Octave shifts (12 semitones) preserve accidentals and alter only the octave number.
@@ -423,3 +463,4 @@ export function transposeEvent(eventId: Id, semitones: number): Command {
     },
   };
 }
+

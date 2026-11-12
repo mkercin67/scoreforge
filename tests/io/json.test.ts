@@ -123,8 +123,14 @@ describe('JSON serialization and deserialization', () => {
       tuplet: { actual: 3, normal: 2 }, // 320 ticks
     });
 
+    const rest1 = createRest({ baseType: 'half' }); // 1920 ticks
+    const rest2 = createRest({
+      baseType: '16th',
+      tuplet: { actual: 3, normal: 2 }, // 160 ticks (1440 + 320 + 1920 + 160 = 3840)
+    });
+
     part.staves[0].measures[measure.id] = {
-      voices: [{ id: 'v1', events: [dottedNote, tupletNote] }],
+      voices: [{ id: 'v1', events: [dottedNote, tupletNote, rest1, rest2] }],
     };
 
     const json = serializeScore(score);

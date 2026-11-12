@@ -18,6 +18,10 @@ export interface ToolbarProps {
   canResetAllOverrides?: boolean;
   onResetAllOverrides?: () => void;
   onOpenNewScore: () => void;
+  onOpen?: () => void;
+  onSave?: () => void;
+  onSaveAs?: () => void;
+  onOpenScoreInfo?: () => void;
   mode: EditorMode;
   onChangeMode: (mode: EditorMode) => void;
   activeDuration: BaseDurationType;
@@ -53,6 +57,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   canResetAllOverrides = false,
   onResetAllOverrides,
   onOpenNewScore,
+  onOpen,
+  onSave,
+  onSaveAs,
+  onOpenScoreInfo,
   mode,
   onChangeMode,
   activeDuration,
@@ -117,6 +125,90 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         >
           + {t('toolbar.new')}
         </button>
+
+        {onOpen && (
+          <button
+            type="button"
+            onClick={handleButtonClick(onOpen)}
+            onMouseDown={(e) => e.preventDefault()}
+            title={`${t('toolbar.open')} (Ctrl+O)`}
+            style={{
+              padding: '0.4rem 0.7rem',
+              fontSize: '0.85rem',
+              fontWeight: 500,
+              color: '#1e293b',
+              backgroundColor: '#f1f5f9',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+          >
+            {t('toolbar.open')}
+          </button>
+        )}
+
+        {onSave && (
+          <button
+            type="button"
+            onClick={handleButtonClick(onSave)}
+            onMouseDown={(e) => e.preventDefault()}
+            title={`${t('toolbar.save')} (Ctrl+S)`}
+            style={{
+              padding: '0.4rem 0.7rem',
+              fontSize: '0.85rem',
+              fontWeight: 500,
+              color: '#1e293b',
+              backgroundColor: '#f1f5f9',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+          >
+            {t('toolbar.save')}
+          </button>
+        )}
+
+        {onSaveAs && (
+          <button
+            type="button"
+            onClick={handleButtonClick(onSaveAs)}
+            onMouseDown={(e) => e.preventDefault()}
+            title={t('toolbar.saveAs')}
+            style={{
+              padding: '0.4rem 0.7rem',
+              fontSize: '0.85rem',
+              fontWeight: 500,
+              color: '#1e293b',
+              backgroundColor: '#f1f5f9',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+          >
+            {t('toolbar.saveAs')}
+          </button>
+        )}
+
+        {onOpenScoreInfo && (
+          <button
+            type="button"
+            onClick={handleButtonClick(onOpenScoreInfo)}
+            onMouseDown={(e) => e.preventDefault()}
+            title={t('toolbar.scoreInfo')}
+            style={{
+              padding: '0.4rem 0.7rem',
+              fontSize: '0.85rem',
+              fontWeight: 500,
+              color: '#1e293b',
+              backgroundColor: '#f1f5f9',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+          >
+            {t('toolbar.scoreInfo')}
+          </button>
+        )}
 
         <div style={{ width: '1px', height: '22px', backgroundColor: '#e2e8f0', margin: '0 0.25rem' }} />
 

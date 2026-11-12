@@ -29,7 +29,7 @@ import {
   snapCursor,
 } from '../core/input';
 import { durationTicks, measureTicks } from '../core/time';
-import { newId } from '../core/factory';
+import { newId, createEmptyScore } from '../core/factory';
 import { buildSampleScore } from './Demo';
 import { EditorMode } from './keymap';
 import { layoutScore } from '../layout/layoutScore';
@@ -48,9 +48,26 @@ export interface SelectedEventInfo {
   dots: number;
 }
 
+function getDefaultStartupScore(): Score {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('state') === 'sample') {
+      return buildSampleScore('G');
+    }
+  }
+  return createEmptyScore({
+    clef: { sign: 'G', line: 2 },
+    keySig: 0,
+    timeSig: { num: 4, den: 4 },
+    measures: 8,
+    title: 'Yeni Eser',
+  });
+}
+
 export function useEditor(initialScore?: Score) {
-  const historyRef = useRef<History>(new History(initialScore ?? buildSampleScore('G')));
+  const historyRef = useRef<History>(new History(initialScore ?? getDefaultStartupScore()));
   const [score, setScore] = useState<Score>(() => historyRef.current.score);
+  const [dirtyVersion, setDirtyVersion] = useState<number>(0);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   // Single source of truth for active editor mode
@@ -88,9 +105,16 @@ export function useEditor(initialScore?: Score) {
     }, 2000);
   }, []);
 
+  const markClean = useCallback(() => {
+    historyRef.current.markClean();
+    setDirtyVersion((v) => v + 1);
+  }, []);
+
   const resetScore = useCallback((newScore: Score) => {
     historyRef.current = new History(newScore);
+    historyRef.current.markClean();
     setScore(historyRef.current.score);
+    setDirtyVersion((v) => v + 1);
     setSelectedEventId(null);
     lastEnteredPitchRef.current = null;
 
@@ -107,6 +131,7 @@ export function useEditor(initialScore?: Score) {
   const executeCommand = useCallback((cmd: Command) => {
     const nextScore = historyRef.current.do(cmd);
     setScore(nextScore);
+    setDirtyVersion((v) => v + 1);
     return nextScore;
   }, []);
 
@@ -114,6 +139,7 @@ export function useEditor(initialScore?: Score) {
     const prevScore = historyRef.current.undo();
     if (prevScore) {
       setScore(prevScore);
+      setDirtyVersion((v) => v + 1);
       setSelectedEventId((curr) => (curr && eventExists(prevScore, curr) ? curr : null));
       setCursor((c) => {
         const nextC = c ? snapCursor(prevScore, c) : null;
@@ -127,6 +153,7 @@ export function useEditor(initialScore?: Score) {
     const nextScore = historyRef.current.redo();
     if (nextScore) {
       setScore(nextScore);
+      setDirtyVersion((v) => v + 1);
       setSelectedEventId((curr) => (curr && eventExists(nextScore, curr) ? curr : null));
       setCursor((c) => {
         const nextC = c ? snapCursor(nextScore, c) : null;
@@ -522,6 +549,8 @@ export function useEditor(initialScore?: Score) {
 
   return {
     score,
+    isDirty: dirtyVersion >= 0 && historyRef.current.isDirty(),
+    markClean,
     canUndo: historyRef.current.canUndo(),
     canRedo: historyRef.current.canRedo(),
     executeCommand,

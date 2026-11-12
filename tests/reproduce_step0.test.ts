@@ -1,11 +1,10 @@
 import { describe, it } from 'vitest';
 import { createNote, createPitch, createRest, createEmptyScore } from '../src/core/factory';
 import { groupBeams } from '../src/layout/beams';
-import { PPQ, durationTicks } from '../src/core/time';
+import { durationTicks } from '../src/core/time';
 import { enterNote, enterRest } from '../src/core/input';
 import { validateScore } from '../src/core/validate';
 import { layoutScore } from '../src/layout/layoutScore';
-import { renderSvgToString } from '../src/render/renderSvg';
 import { buildBeamDemoScore } from '../src/ui/beamDemoScore';
 
 describe('STEP 0 CLOSING CHECKS', () => {
@@ -36,7 +35,6 @@ describe('STEP 0 CLOSING CHECKS', () => {
     });
     console.log('groupBeams groups:', JSON.stringify(groups, null, 2));
     for (const g of groups) {
-      const gEvents = g.eventIds.map((id) => events.find((e) => e.id === id)!);
       const startTicks = g.eventIds.map((id) => ticks[events.findIndex((e) => e.id === id)]);
       console.log(`Group with ${g.eventIds.length} notes: startTicks=[${startTicks.join(', ')}]`);
     }
